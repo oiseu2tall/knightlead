@@ -1,0 +1,418 @@
+// Bootcamp LMS — Prisma schema
+// PostgreSQL, designed for role-based access
+// (STUDENT | INSTRUCTOR | MANAGER | ADMIN)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+
+// Role hierarchy (capabilities, NOT inheritance — checked explicitly per action):
+//   STUDENT    — enrolls, submits work, views own progress
+//   INSTRUCTOR — grades submissions for courses they teach
+//   MANAGER    — manages cohorts, courses, and modules; does NOT enroll
+//   ADMIN      — full access; cannot enroll either
+enum Role {
+  STUDENT
+  INSTRUCTOR
+  MANAGER
+  ADMIN
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  COMPLETED
+  DROPPED
+  SUSPENDED
+}
+
+enum ContentType {
+  VIDEO
+  ARTICLE
+  QUIZ
+  ASSIGNMENT
+  LIVE_SESSION
+}
+
+enum SubmissionStatus {
+  SUBMITTED
+  GRADED
+  RETURNED
+  LATE
+}
+
+enum AnnouncementAudience {
+  ALL
+  COHORT
+  COURSE
+}
+
+// ---------- Core identity ----------
+
+model User {
+  id             String   @id @default(cuid())
+  email          String   @unique
+  emailVerified  DateTime?
+  name           String?
+  image          String?
+  hashedPassword String? // null for OAuth-only accounts
+  role           Role     @default(STUDENT)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  // Relations
+  accounts          Account[]
+  sessions          Session[]
+  enrollments       Enrollment[]
+  taughtCourses     Course[]      @relation("CourseInstructor")
+  managedCohorts    Cohort[]      @relation("CohortManager")
+  managedCourses    Course[]      @relation("CourseManager")
+  submissions       Submission[]
+  quizAttempts      QuizAttempt[]
+  announcements     Announcement[] @relation("AnnouncementAuthor")
+  gradedSubmissions Submission[]  @relation("SubmissionGrader")
+  certificates      Certificate[]
+  auditLogs         AuditLog[]
+
+  @@index([role])
+  @@map("users")
+}
+
+// Auth.js v5 standard adapter tables
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ---------- Curriculum ----------
+
+model Cohort {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  startDate   DateTime
+  endDate     DateTime
+  description String?  @db.Text
+  // Optional: a MANAGER who owns/oversees the cohort. Managers can
+  // also see cohorts with a null managerId (they manage the catalog),
+  // but we record ownership for the audit trail and future per-cohort
+  // scoping.
+  managerId   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  manager       User?          @relation("CohortManager", fields: [managerId], references: [id], onDelete: SetNull)
+  enrollments   Enrollment[]
+  announcements Announcement[]
+
+  @@index([managerId])
+  @@map("cohorts")
+}
+
+model Course {
+  id           String   @id @default(cuid())
+  title        String
+  slug         String   @unique
+  description  String?  @db.Text
+  thumbnailUrl String?
+  instructorId String
+  // Optional: a MANAGER who owns/oversees the course. Managers can
+  // edit any course; setting a managerId just records the owner.
+  managerId    String?
+  isPublished  Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  instructor   User          @relation("CourseInstructor", fields: [instructorId], references: [id])
+  manager      User?         @relation("CourseManager",    fields: [managerId],    references: [id], onDelete: SetNull)
+  modules      Module[]
+  enrollments  Enrollment[]
+  certificates Certificate[]
+  announcements Announcement[]
+
+  @@index([instructorId])
+  @@index([managerId])
+  @@map("courses")
+}
+
+model Module {
+  id        String   @id @default(cuid())
+  courseId  String
+  title     String
+  order     Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  lessons Lesson[]
+
+  @@unique([courseId, order])
+  @@index([courseId])
+  @@map("modules")
+}
+
+model Lesson {
+  id          String      @id @default(cuid())
+  moduleId    String
+  title       String
+  contentType ContentType
+  content     String?     @db.Text // markdown body or external URL
+  videoUrl    String?
+  durationMin Int?
+  order       Int
+  isFree      Boolean     @default(false) // preview lesson
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+
+  module      Module         @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+  assignments Assignment[]
+  quizzes     Quiz[]
+
+  @@unique([moduleId, order])
+  @@index([moduleId])
+  @@map("lessons")
+}
+
+// ---------- Enrollment & progress ----------
+
+model Enrollment {
+  id        String           @id @default(cuid())
+  userId    String
+  courseId  String
+  cohortId  String?
+  status    EnrollmentStatus @default(ACTIVE)
+  progress  Int              @default(0) // 0-100, derived
+  enrolledAt DateTime        @default(now())
+  completedAt DateTime?
+
+  user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  cohort Cohort? @relation(fields: [cohortId], references: [id])
+
+  @@unique([userId, courseId])
+  @@index([userId])
+  @@index([courseId])
+  @@map("enrollments")
+}
+
+// Tracks completion of a specific lesson by a specific user. Source of
+// truth for the Enrollment.progress percentage (recomputed on change).
+model LessonProgress {
+  id          String   @id @default(cuid())
+  userId      String
+  lessonId    String
+  completedAt DateTime @default(now())
+
+  @@unique([userId, lessonId])
+  @@index([userId])
+  @@index([lessonId])
+  @@map("lesson_progress")
+}
+
+// ---------- Assignments & submissions ----------
+
+model Assignment {
+  id        String   @id @default(cuid())
+  lessonId  String
+  title     String
+  prompt    String   @db.Text
+  dueDate   DateTime?
+  maxScore  Int      @default(100)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lesson      Lesson       @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  submissions Submission[]
+
+  @@index([lessonId])
+  @@map("assignments")
+}
+
+model Submission {
+  id           String           @id @default(cuid())
+  assignmentId String
+  userId       String
+  content      String           @db.Text
+  attachments  String[]         // file URLs (S3/R2)
+  status       SubmissionStatus @default(SUBMITTED)
+  score        Int?
+  feedback     String?          @db.Text
+  submittedAt  DateTime         @default(now())
+  gradedAt     DateTime?
+  gradedById   String?
+
+  assignment Assignment @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gradedBy   User?      @relation("SubmissionGrader", fields: [gradedById], references: [id])
+
+  @@index([assignmentId])
+  @@index([userId])
+  @@map("submissions")
+}
+
+// ---------- Quizzes ----------
+
+model Quiz {
+  id          String   @id @default(cuid())
+  lessonId    String
+  title       String
+  description String?  @db.Text
+  timeLimit   Int? // seconds; null = untimed
+  passingScore Int     @default(70)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lesson    Lesson        @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  questions QuizQuestion[]
+  attempts  QuizAttempt[]
+
+  @@index([lessonId])
+  @@map("quizzes")
+}
+
+model QuizQuestion {
+  id        String   @id @default(cuid())
+  quizId    String
+  prompt    String   @db.Text
+  // JSON: { choices: [{id,text}], answer: "choiceId", explanation?: string }
+  payload   Json
+  points    Int      @default(1)
+  order     Int
+  createdAt DateTime @default(now())
+
+  quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+
+  @@unique([quizId, order])
+  @@index([quizId])
+  @@map("quiz_questions")
+}
+
+model QuizAttempt {
+  id          String   @id @default(cuid())
+  quizId      String
+  userId      String
+  // JSON: array of { questionId, choiceId }
+  responses   Json
+  score       Int
+  passed      Boolean
+  startedAt   DateTime @default(now())
+  completedAt DateTime?
+
+  quiz Quiz @relation(fields: [quizId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([quizId])
+  @@map("quiz_attempts")
+}
+
+// ---------- Communication ----------
+
+model Announcement {
+  id        String               @id @default(cuid())
+  authorId  String
+  cohortId  String?
+  courseId  String?
+  audience  AnnouncementAudience @default(ALL)
+  title     String
+  body      String               @db.Text
+  createdAt DateTime             @default(now())
+
+  author  User    @relation("AnnouncementAuthor", fields: [authorId], references: [id])
+  cohort  Cohort? @relation(fields: [cohortId], references: [id])
+  course  Course? @relation(fields: [courseId], references: [id])
+
+  @@index([authorId])
+  @@map("announcements")
+}
+
+// ---------- Certificates ----------
+
+model Certificate {
+  id         String   @id @default(cuid())
+  userId     String
+  courseId   String
+  issuedAt   DateTime @default(now())
+  // SHA-256 hash of (userId|courseId|issuedAt) — used for verification URL
+  hash       String   @unique
+  // Optional: pointer to a generated PDF in object storage
+  pdfUrl     String?
+
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  course Course @relation(fields: [courseId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, courseId])
+  @@map("certificates")
+}
+
+// ---------- Audit ----------
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  action    String // e.g. "USER_LOGIN", "GRADE_ASSIGNMENT"
+  resource  String? // e.g. "submission:abc123"
+  metadata  Json?
+  ip        String?
+  userAgent String? @db.Text
+  createdAt DateTime @default(now())
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([action])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+// Sliding-window rate-limit events. Prisma model for visibility; the
+// rate-limit module uses $queryRaw for performance.
+model RateLimitEvent {
+  id        String   @id @default(cuid()) @map("id")
+  key       String   @map("key")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@index([key, createdAt])
+  @@map("rate_limit_events")
+}
