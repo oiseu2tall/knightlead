@@ -1,17 +1,10 @@
-// Server-rendered layout for the dashboard area. Authoritative auth check.
-import { redirect } from "next/navigation";
-import { auth } from "@/auth";
-import { DashboardShell } from "@/components/layout/DashboardShell";
+// Layout shared by every page under /dashboard. Uses the global
+// `<AuthedShell>` so the drawer + app bar appear on all student-
+// facing pages.
+import { AuthedShell } from "@/components/layout/AuthedShell";
 
 export const metadata = { title: "Dashboard · Bootcamp LMS" };
 
-export default async function DashboardLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  if (!session.user.emailVerified) redirect("/verify-email/pending");
-  return <DashboardShell user={session.user}>{children}</DashboardShell>;
+export default function DashboardLayout({ children }: { children: React.ReactNode }) {
+  return <AuthedShell>{children}</AuthedShell>;
 }

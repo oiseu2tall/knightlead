@@ -6,7 +6,12 @@ import { Button } from "@/components/ui/Button";
 import { loginAction, type AuthFormState } from "../actions";
 
 export function LoginForm() {
-  const [state, formAction, pending] = useActionState<AuthFormState, FormData>(loginAction, null);
+  const wrappedLoginAction = async (state: AuthFormState, formData: FormData): Promise<AuthFormState> => {
+    const result = await loginAction(state, formData);
+    if (result === undefined) return state;
+    return result;
+  };
+  const [state, formAction, pending] = useActionState<AuthFormState, FormData>(wrappedLoginAction, null);
   const fe = state?.fieldErrors ?? {};
   return (
     <form action={formAction} className="space-y-4">

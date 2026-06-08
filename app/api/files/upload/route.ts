@@ -15,6 +15,8 @@ export const runtime = "nodejs";
 const ALLOWED = new Set([
   "image/png", "image/jpeg", "image/webp", "image/gif",
   "application/pdf",
+  "application/vnd.ms-powerpoint",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
   "text/plain", "text/markdown",
   "application/zip",
   "application/msword",

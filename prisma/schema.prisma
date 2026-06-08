@@ -187,6 +187,11 @@ model Module {
   course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   lessons Lesson[]
 
+  fileKey    String? @db.Text
+  fileName   String? @db.Text
+  fileSize   Int?
+  fileType   String?
+
   @@unique([courseId, order])
   @@index([courseId])
   @@map("modules")

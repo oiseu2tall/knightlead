@@ -105,3 +105,41 @@ body {
   outline-offset: 2px;
   border-radius: 6px;
 }
+
+/* Long-list virtualization — CSS-only. The browser skips layout and
+   paint for rows outside the viewport, so a 1000-item list renders
+   as fast as a 20-item one. Combine with a sane contain-intrinsic-size
+   so the scrollbar height is correct before the rows paint in. */
+.kl-virtualize > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 80px;
+}
+.kl-virtualize-tight > * {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 56px;
+}
+
+/* Native <dialog> modal styling — we use the dialog element via the
+   <Modal /> component. Center it and smooth the open animation. */
+dialog {
+  margin: auto;
+  color: var(--color-ink);
+}
+dialog::backdrop {
+  background-color: rgba(15, 23, 42, 0.55);
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+}
+:where(.dark) dialog::backdrop {
+  background-color: rgba(0, 0, 0, 0.7);
+}
+dialog[open] {
+  animation: kl-dialog-in 180ms ease-out;
+}
+@keyframes kl-dialog-in {
+  from { opacity: 0; transform: translateY(8px) scale(0.98); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@media (prefers-reduced-motion: reduce) {
+  dialog[open] { animation: none; }
+}

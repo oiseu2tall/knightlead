@@ -31,7 +31,7 @@ export function PageHeader({
   accent = "brand",
 }: {
   title: string;
-  description?: string;
+  description?: ReactNode;
   action?: ReactNode;
   /**
    * Optional eyebrow rendered above the title — used to surface the

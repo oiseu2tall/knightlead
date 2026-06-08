@@ -16,10 +16,12 @@ export function EnrollStudentForm({
   students,
   courses,
   cohorts,
+  onDone,
 }: {
   students: Student[];
   courses: Course[];
   cohorts: Cohort[];
+  onDone?: () => void;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();

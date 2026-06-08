@@ -11,7 +11,7 @@ A full-stack Learning Management System for cohort-based bootcamps. Built on **N
 - 📝 **Assignments** — text submissions + file attachments, idempotent resubmits, instructor grading with audit log
 - 📊 **Instructor grading queue** — filter by status, score cap, optimistic UI, audit trail, scoped to the instructor's own courses
 - 🧑‍🤝‍🧑 **Instructor cohorts** — read-only view of cohorts connected to the instructor's courses
-- 🛠️ **Catalog management** — MANAGER + ADMIN can create/edit cohorts, courses, and modules; instructor and manager pages are role-scoped
+- 🛠️ **Catalog management** — MANAGER + ADMIN can create/edit cohorts, courses, and modules; attach PDF/PowerPoint files to modules; instructor and manager pages are role-scoped
 - 🔒 **Admin panel** — user search, role filter chips, pagination, inline role change (with audit log), per-user detail with enrollments / submissions / audit timeline. ADMIN only.
 - 📎 **Local file storage** — HMAC-signed token URLs, MIME allowlist, 50MB cap, path-traversal guards, S3-shaped interface for easy swap
 - ✉️ **Email verification** — single-use tokens (24h TTL), Resend or console transport, auto-redirect to `/verify-email/pending` until verified
@@ -202,7 +202,7 @@ app/
       page.tsx
       CourseForm.tsx, CourseRow.tsx
       [slug]/page.tsx           Module list for a course
-      [slug]/ModuleForm.tsx     Add / delete modules
+      [slug]/ModuleForm.tsx     Add / delete modules (supports PDF/PowerPoint upload)
     users/                      ADMIN only
       page.tsx                  Search, role filter, pagination, inline role change
       RoleSelect.tsx            Client component with optimistic role update

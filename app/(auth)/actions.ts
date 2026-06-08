@@ -36,7 +36,7 @@ async function clientIp(): Promise<string> {
   return h.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
 }
 
-export async function registerAction(_prev: AuthFormState, formData: FormData): Promise<AuthFormState> {
+export async function registerAction(_prev: AuthFormState, formData: FormData): Promise<AuthFormState | void> {
   const ip = await clientIp();
   const limited = await rateLimit(`register:${ip}`, { limit: 5, windowMs: 60_000 });
   if (!limited.ok) return { error: "Too many attempts. Try again in a minute." };
@@ -85,7 +85,7 @@ export async function registerAction(_prev: AuthFormState, formData: FormData): 
   redirect("/verify-email");
 }
 
-export async function loginAction(_prev: AuthFormState, formData: FormData): Promise<AuthFormState> {
+export async function loginAction(_prev: AuthFormState, formData: FormData): Promise<AuthFormState | void> {
   const ip = await clientIp();
   const limited = await rateLimit(`login:${ip}`, { limit: 10, windowMs: 60_000 });
   if (!limited.ok) return { error: "Too many attempts. Try again in a minute." };

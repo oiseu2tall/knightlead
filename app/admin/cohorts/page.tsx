@@ -1,12 +1,9 @@
-// /admin/cohorts — list + create/edit form for cohorts.
-// MANAGER + ADMIN. The layout already gates role; this page just
-// enforces the catalog-writer contract for the data it shows.
-import { db } from "@/lib/db";
-import { Card, PageHeader, Badge } from "@/components/ui/Primitives";
-import { CohortForm } from "./CohortForm";
-import { CohortRow } from "./CohortRow";
+// /admin/cohorts — server wrapper. Loads the catalog data, runs the
+// role gate, and hands the serialized payload to the client view.
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { db } from "@/lib/db";
+import CohortsAdminClient, { type Cohort } from "./CohortsAdminClient";
 
 export const metadata = { title: "Cohorts · Catalog" };
 
@@ -32,66 +29,33 @@ export default async function CohortsAdmin() {
     }),
   ]);
 
+  const now = Date.now();
+  const initialCohorts: Cohort[] = cohorts.map((c) => {
+    const startMs = c.startDate.getTime();
+    const endMs = c.endDate.getTime();
+    const status: Cohort["status"] =
+      startMs > now ? "upcoming" : endMs < now ? "ended" : "active";
+    return {
+      id: c.id,
+      name: c.name,
+      slug: c.slug,
+      startDate: c.startDate.toISOString(),
+      endDate: c.endDate.toISOString(),
+      description: c.description,
+      managerId: c.managerId,
+      manager: c.manager,
+      enrollmentCount: c._count.enrollments,
+      status,
+    };
+  });
+
+  const role = session.user.role === "ADMIN" ? "ADMIN" : "MANAGER";
+
   return (
-    <>
-      <PageHeader
-        eyebrow="Manage · Cohorts"
-        title="Cohorts"
-        description={`${cohorts.length} ${cohorts.length === 1 ? "cohort" : "cohorts"} in the catalog`}
-        accent="brand"
-      />
-
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-        <Card>
-          {cohorts.length === 0 ? (
-            <p className="text-sm text-ink-muted">No cohorts yet. Create one on the right.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-xs uppercase tracking-wide text-ink-muted">
-                  <tr>
-                    <th className="py-2 pr-4 font-medium">Name</th>
-                    <th className="py-2 pr-4 font-medium">Dates</th>
-                    <th className="py-2 pr-4 font-medium">Manager</th>
-                    <th className="py-2 pr-4 font-medium">Enrollments</th>
-                    <th className="py-2 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {cohorts.map((c) => (
-                    <CohortRow
-                      key={c.id}
-                      cohort={{
-                        id: c.id,
-                        name: c.name,
-                        slug: c.slug,
-                        startDate: c.startDate,
-                        endDate: c.endDate,
-                        description: c.description,
-                        managerId: c.managerId,
-                        manager: c.manager,
-                        enrollmentCount: c._count.enrollments,
-                      }}
-                      managers={managers}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-
-        <div>
-          <CohortForm mode="create" managers={managers} />
-        </div>
-      </div>
-
-      {cohorts.length > 0 && (
-        <p className="mt-4 text-xs text-ink-muted">
-          Cohorts with enrollments cannot be deleted. Mark the cohort inactive
-          or move its enrollments first.
-        </p>
-      )}
-    </>
+    <CohortsAdminClient
+      initialCohorts={initialCohorts}
+      managers={managers}
+      role={role}
+    />
   );
 }

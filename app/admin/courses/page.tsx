@@ -1,11 +1,9 @@
-// /admin/courses — list + create/edit form for courses.
-// MANAGER + ADMIN.
-import { db } from "@/lib/db";
-import { Card, PageHeader, Badge } from "@/components/ui/Primitives";
-import { CourseForm } from "./CourseForm";
-import { CourseRow } from "./CourseRow";
+// /admin/courses — server wrapper. Loads catalog data, gates the
+// route, and hands the payload to the client view.
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { db } from "@/lib/db";
+import CoursesAdminClient, { type Course } from "./CoursesAdminClient";
 
 export const metadata = { title: "Courses · Catalog" };
 
@@ -37,64 +35,29 @@ export default async function CoursesAdmin() {
     }),
   ]);
 
+  const initialCourses: Course[] = courses.map((c) => ({
+    id: c.id,
+    title: c.title,
+    slug: c.slug,
+    description: c.description,
+    thumbnailUrl: c.thumbnailUrl,
+    instructorId: c.instructorId,
+    instructor: c.instructor,
+    managerId: c.managerId,
+    manager: c.manager,
+    isPublished: c.isPublished,
+    moduleCount: c._count.modules,
+    enrollmentCount: c._count.enrollments,
+  }));
+
+  const role = session.user.role === "ADMIN" ? "ADMIN" : "MANAGER";
+
   return (
-    <>
-      <PageHeader
-        eyebrow="Manage · Courses"
-        title="Courses"
-        description={`${courses.length} ${courses.length === 1 ? "course" : "courses"} in the catalog`}
-        accent="brand"
-      />
-
-      <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
-        <Card>
-          {courses.length === 0 ? (
-            <p className="text-sm text-ink-muted">No courses yet. Create one on the right.</p>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead className="text-left text-xs uppercase tracking-wide text-ink-muted">
-                  <tr>
-                    <th className="py-2 pr-4 font-medium">Course</th>
-                    <th className="py-2 pr-4 font-medium">Instructor</th>
-                    <th className="py-2 pr-4 font-medium">Status</th>
-                    <th className="py-2 pr-4 font-medium">Modules</th>
-                    <th className="py-2 pr-4 font-medium">Enrolled</th>
-                    <th className="py-2 font-medium">Actions</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-line">
-                  {courses.map((c) => (
-                    <CourseRow
-                      key={c.id}
-                      course={{
-                        id: c.id,
-                        title: c.title,
-                        slug: c.slug,
-                        description: c.description,
-                        thumbnailUrl: c.thumbnailUrl,
-                        instructorId: c.instructorId,
-                        instructor: c.instructor,
-                        managerId: c.managerId,
-                        manager: c.manager,
-                        isPublished: c.isPublished,
-                        moduleCount: c._count.modules,
-                        enrollmentCount: c._count.enrollments,
-                      }}
-                      instructors={instructors}
-                      managers={managers}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </Card>
-
-        <div>
-          <CourseForm mode="create" instructors={instructors} managers={managers} />
-        </div>
-      </div>
-    </>
+    <CoursesAdminClient
+      initialCourses={initialCourses}
+      instructors={instructors}
+      managers={managers}
+      role={role}
+    />
   );
 }

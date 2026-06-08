@@ -10,6 +10,7 @@ import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth-guard";
 import { rateLimit } from "@/lib/rate-limit";
 import { headers } from "next/headers";
+import { deleteObject } from "@/lib/storage";
 
 // ---------- helpers ----------
 
@@ -278,6 +279,10 @@ const moduleSchema = z.object({
   courseId: z.string().min(1, "Missing course").max(64),
   title: z.string().trim().min(1, "Title is required").max(160),
   order: z.coerce.number().int().min(0).max(999),
+  fileKey: z.string().max(500).optional().or(z.literal("")),
+  fileName: z.string().max(255).optional().or(z.literal("")),
+  fileSize: z.coerce.number().int().optional().or(z.literal("")),
+  fileType: z.string().max(100).optional().or(z.literal("")),
 });
 
 export async function upsertModule(formData: FormData): Promise<CatalogResult> {
@@ -290,38 +295,43 @@ export async function upsertModule(formData: FormData): Promise<CatalogResult> {
     courseId: formData.get("courseId"),
     title: formData.get("title"),
     order: formData.get("order"),
+    fileKey: formData.get("fileKey") || "",
+    fileName: formData.get("fileName") || "",
+    fileSize: formData.get("fileSize") || "",
+    fileType: formData.get("fileType") || "",
   });
   if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
-  const { id, courseId, title, order } = parsed.data;
+  const { id, courseId, title, order, fileKey, fileName, fileSize, fileType } = parsed.data;
 
   const course = await db.course.findUnique({ where: { id: courseId }, select: { id: true, slug: true } });
   if (!course) return { ok: false, error: "Course not found" };
 
+  const fileData = {
+    fileKey: fileKey || undefined,
+    fileName: fileName || undefined,
+    fileSize: fileSize ? Number(fileSize) : undefined,
+    fileType: fileType || undefined,
+  };
+
   if (id) {
-    const existing = await db.module.findUnique({ where: { id }, select: { id: true, courseId: true } });
+    const existing = await db.module.findUnique({ where: { id }, select: { id: true, courseId: true, fileKey: true } });
     if (!existing) return { ok: false, error: "Module not found" };
     if (existing.courseId !== courseId) return { ok: false, error: "Module doesn't belong to this course" };
 
-    // If the order changed, make space in the (courseId, order) uniqueness.
-    if (order !== undefined) {
-      await db.module.update({ where: { id }, data: { title, order } });
-    } else {
-      await db.module.update({ where: { id }, data: { title } });
-    }
+    await db.module.update({ where: { id }, data: { title, order, ...fileData } });
     await db.auditLog.create({
-      data: { userId: actor.id, action: "UPDATE_MODULE", resource: `module:${id}`, metadata: { title, order } },
+      data: { userId: actor.id, action: "UPDATE_MODULE", resource: `module:${id}`, metadata: { title, order, hasFile: !!fileData.fileKey } },
     });
   } else {
-    // Conflict on (courseId, order) — bump everything at-or-after `order` by 1.
     await db.$transaction([
       db.module.updateMany({
         where: { courseId, order: { gte: order } },
         data: { order: { increment: 1 } },
       }),
-      db.module.create({ data: { courseId, title, order } }),
+      db.module.create({ data: { courseId, title, order, ...fileData } }),
     ]);
     await db.auditLog.create({
-      data: { userId: actor.id, action: "CREATE_MODULE", resource: `course:${courseId}`, metadata: { title, order } },
+      data: { userId: actor.id, action: "CREATE_MODULE", resource: `course:${courseId}`, metadata: { title, order, hasFile: !!fileData.fileKey } },
     });
   }
 
@@ -338,9 +348,13 @@ export async function deleteModule(formData: FormData): Promise<CatalogResult> {
 
   const existing = await db.module.findUnique({
     where: { id },
-    select: { id: true, title: true, courseId: true, course: { select: { slug: true } } },
+    select: { id: true, title: true, courseId: true, fileKey: true, course: { select: { slug: true } } },
   });
   if (!existing) return { ok: false, error: "Module not found" };
+
+  if (existing.fileKey) {
+    try { await deleteObject(existing.fileKey); } catch { /* best-effort cleanup */ }
+  }
 
   await db.module.delete({ where: { id } });
   await db.auditLog.create({

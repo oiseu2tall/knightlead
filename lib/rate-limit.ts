@@ -30,7 +30,7 @@ export async function rateLimit(
       FROM rate_limit_events
       WHERE key = ${key} AND created_at > ${new Date(windowStart)}
     `;
-    const current = Number(used[0]?.count ?? 0n);
+    const current = Number(used[0]?.count ?? BigInt(0));
 
     if (current >= opts.limit) {
       // Find the oldest event in the window to compute when capacity frees.

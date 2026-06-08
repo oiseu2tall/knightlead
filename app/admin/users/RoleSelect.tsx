@@ -17,7 +17,7 @@ export function RoleSelect({
   currentRole: Role;
 }) {
   const [pending, startTransition] = useTransition();
-  const [optimistic, setOptimistic] = useOptimistic<Role, Role>(currentRole);
+  const [optimistic, addOptimistic] = useOptimistic(currentRole);
 
   return (
     <select
@@ -26,15 +26,13 @@ export function RoleSelect({
       onChange={(e) => {
         const next = e.target.value as Role;
         startTransition(async () => {
-          setOptimistic(next);
+          addOptimistic(next);
           const fd = new FormData();
           fd.set("userId", userId);
           fd.set("role", next);
           const res = await changeUserRole(fd);
           if (!res.ok) {
-            // Roll back by re-rendering with the server-side value.
-            setOptimistic(currentRole);
-            alert(res.error); // simple surface; swap for a toast later
+            alert(res.error);
           }
         });
       }}

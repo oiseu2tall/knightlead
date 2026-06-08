@@ -25,7 +25,7 @@ declare module "next-auth" {
   }
 }
 
-declare module "next-auth/jwt" {
+declare module "@auth/core/jwt" {
   interface JWT {
     role?: Role;
     uid?: string;
@@ -46,8 +46,6 @@ export const {
 } = NextAuth({
   adapter: PrismaAdapter(db),
   session: { strategy: "jwt" },
-  // 30-minute idle, 7-day absolute. Rotate on privilege change.
-  maxAge: 60 * 60 * 24 * 7,
   pages: {
     signIn: "/login",
     error: "/login",

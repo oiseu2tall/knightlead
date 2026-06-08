@@ -6,7 +6,12 @@ import { Button } from "@/components/ui/Button";
 import { registerAction, type AuthFormState } from "../actions";
 
 export function RegisterForm() {
-  const [state, formAction, pending] = useActionState<AuthFormState, FormData>(registerAction, null);
+  const wrappedRegisterAction = async (state: AuthFormState, formData: FormData): Promise<AuthFormState> => {
+    const result = await registerAction(state, formData);
+    if (result === undefined) return state;
+    return result;
+  };
+  const [state, formAction, pending] = useActionState<AuthFormState, FormData>(wrappedRegisterAction, null);
   const fe = state?.fieldErrors ?? {};
   return (
     <form action={formAction} className="space-y-4">

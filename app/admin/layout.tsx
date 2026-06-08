@@ -1,19 +1,11 @@
-// /admin/** — server-side re-check of role on every render.
-// The proxy already gates this, but Next 16 docs are explicit:
-// always re-verify in the page/layout, never trust the edge alone.
-//
-// `/admin` is shared by:
-//   - ADMIN  → full access (user management, catalog, everything)
-//   - MANAGER → catalog only (cohorts, courses, modules)
-// Per-subroute layouts/pages do a tighter role check.
-import { redirect } from "next/navigation";
-import { auth } from "@/auth";
+// Layout shared by every page under /admin. Renders the global
+// `<AuthedShell>` with a role gate (MANAGER + ADMIN) and the
+// consistent drawer / app bar. Per-page role checks remain as the
+// authoritative authorization gate (Next 16 layouts don't re-render
+// on every navigation).
 
-export default async function AdminLayout({ children }: { children: React.ReactNode }) {
-  const session = await auth();
-  if (!session?.user?.id) redirect("/login");
-  if (session.user.role !== "ADMIN" && session.user.role !== "MANAGER") {
-    redirect("/forbidden");
-  }
-  return <>{children}</>;
+import { AuthedShell } from "@/components/layout/AuthedShell";
+
+export default function AdminLayout({ children }: { children: React.ReactNode }) {
+  return <AuthedShell allowedRoles={["MANAGER", "ADMIN"]}>{children}</AuthedShell>;
 }
