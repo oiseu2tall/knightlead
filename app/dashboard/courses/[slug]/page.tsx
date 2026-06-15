@@ -65,7 +65,56 @@ export default async function CoursePage({
   const enrollment = await db.enrollment.findUnique({
     where: { userId_courseId: { userId, courseId: course.id } },
   });
-  if (!enrollment) notFound();
+
+  // If the course exists + is published but the user isn't enrolled,
+  // show an enrollment prompt instead of 404-ing.
+  if (!enrollment) {
+    return (
+      <>
+        <SubNav items={LEARN_TABS} />
+
+        <Breadcrumb
+          items={[
+            { label: "Learn", href: "/dashboard" },
+            { label: "My courses", href: "/dashboard/courses" },
+            { label: course.title },
+          ]}
+        />
+
+        <div className="mt-3 mb-6 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <div className="min-w-0">
+            <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">
+              <span>Course</span>
+              <Badge tone="neutral">not enrolled</Badge>
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">{course.title}</h1>
+            <p className="mt-1 text-sm text-ink-muted">
+              Taught by{" "}
+              <span className="font-medium text-ink">
+                {course.instructor.name ?? "Instructor"}
+              </span>
+            </p>
+          </div>
+          <Link
+            href="/dashboard/courses"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-medium text-ink hover:bg-surface-dim"
+          >
+            <Icon.ArrowLeft className="h-4 w-4" />
+            My courses
+          </Link>
+        </div>
+
+        <EmptyState
+          icon="School"
+          title="You're not enrolled yet"
+          description="Enroll to access modules and track your lesson progress."
+          action={
+            course.isPublished ? { label: "Browse catalog", href: "/dashboard/courses/browse" } : null
+          }
+        />
+      </>
+    );
+  }
 
   const completed = new Set(completedLessons.map((p) => p.lessonId));
   const totalLessons = course.modules.reduce((n, m) => n + m.lessons.length, 0);
@@ -73,6 +122,7 @@ export default async function CoursePage({
     (n, m) => n + m.lessons.filter((l) => completed.has(l.id)).length,
     0,
   );
+
 
   return (
     <>

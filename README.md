@@ -338,8 +338,9 @@ Lists that can grow arbitrarily (recent enrollments, all cohorts, all courses, a
 ## Scripts
 
 ```bash
-npm run dev        # Dev server (Turbopack)
+npm run dev        # Dev server
 npm run build      # Production build
+
 npm run start      # Run built app
 npm run lint       # ESLint
 npm run db:seed    # Seed dev accounts (refuses in production)
