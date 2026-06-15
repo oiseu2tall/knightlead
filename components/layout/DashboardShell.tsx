@@ -234,7 +234,7 @@ function Drawer({
       <div className="flex items-center gap-2.5 px-5 py-4 border-b border-line">
         <span className="h-8 w-8 rounded-lg bg-hero ring-1 ring-inset ring-line" aria-hidden="true" />
         <div className="min-w-0">
-          <p className="truncate text-sm font-bold tracking-tight text-ink">Bootcamp LMS</p>
+          <p className="truncate text-sm font-bold tracking-tight text-ink">Knightlead LMS</p>
           <p className="truncate text-[11px] text-ink-muted">Cohort-based learning</p>
         </div>
       </div>
@@ -366,7 +366,7 @@ function AppBar({
       </button>
       <h1 className="flex items-center gap-2 text-base font-bold tracking-tight text-ink sm:text-lg">
         <span className="h-5 w-5 rounded-md bg-hero md:hidden" aria-hidden="true" />
-        <span className="hidden md:inline">Bootcamp LMS</span>
+        <span className="hidden md:inline">Knightlead LMS</span>
         <span className="ml-1 hidden text-ink-muted sm:inline">/</span>
         <Breadcrumb pathname={pathname} role={role} />
       </h1>

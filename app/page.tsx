@@ -14,7 +14,7 @@ export default async function Home() {
           Now enrolling
         </span>
         <h1 className="mt-5 text-4xl font-bold tracking-tight sm:text-5xl">
-          Bootcamp LMS
+          Knightlead LMS
         </h1>
         <p className="mx-auto mt-4 max-w-md text-base text-white/85 sm:text-lg">
           Cohorts, courses, assignments, and progress — all in one place.

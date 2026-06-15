@@ -19,7 +19,7 @@ export default async function LoginPage() {
             className="inline-flex items-center gap-2 text-xl font-bold tracking-tight text-ink"
           >
             <span className="h-6 w-6 rounded-md bg-hero" aria-hidden="true" />
-            Bootcamp LMS
+            Knightlead LMS
           </Link>
           <h1 className="mt-4 text-2xl font-bold text-ink">Welcome back</h1>
           <p className="mt-1 text-sm text-ink-muted">Sign in to continue learning.</p>

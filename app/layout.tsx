@@ -10,7 +10,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Bootcamp LMS",
+  title: "Knightlead LMS",
   description: "Learn, build, ship — together.",
 };
 
