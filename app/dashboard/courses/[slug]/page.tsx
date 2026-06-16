@@ -109,8 +109,11 @@ export default async function CoursePage({
           title="You're not enrolled yet"
           description="Enroll to access modules and track your lesson progress."
           action={
-            course.isPublished ? { label: "Browse catalog", href: "/dashboard/courses/browse" } : null
+            course.isPublished
+              ? { label: "Browse catalog", href: "/dashboard/courses/browse" }
+              : undefined
           }
+
         />
       </>
     );
