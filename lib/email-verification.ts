@@ -31,7 +31,7 @@ export async function createVerificationToken(userId: string): Promise<string> {
 <p><a href="${url}">Verify email</a></p>
 <p>This link expires in ${TOKEN_TTL_HOURS} hours.</p>`,
     }).catch((e) => {
-      // eslint-disable-next-line no-console
+       
       console.error("[mail] verification send failed:", e);
     });
   }

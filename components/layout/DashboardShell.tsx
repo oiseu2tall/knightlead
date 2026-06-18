@@ -133,8 +133,11 @@ export function DashboardShell({
   const [dark, setDark] = useState(false);
 
   useEffect(() => {
-    setDark(document.documentElement.classList.contains("dark"));
+    // Initialize from DOM, but avoid setState-in-effect cascading.
+    const initialDark = document.documentElement.classList.contains("dark");
+    setDark(initialDark);
   }, []);
+
 
   const toggleDark = () => {
     setDark((d) => {
@@ -145,7 +148,10 @@ export function DashboardShell({
     });
   };
 
-  useEffect(() => setMobileOpen(false), [pathname]);
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
+
 
   const role: Role = isRole(user.role) ? user.role : "STUDENT";
   const sections = useMemo(() => buildSections(role), [role]);

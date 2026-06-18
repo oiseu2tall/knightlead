@@ -10,7 +10,7 @@ import { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
 
 if (process.env.NODE_ENV === "production") {
-  // eslint-disable-next-line no-console
+   
   console.error("❌ Refusing to seed in production. Set NODE_ENV=development.");
   process.exit(1);
 }
@@ -69,17 +69,17 @@ async function main() {
       });
     }
 
-    // eslint-disable-next-line no-console
+     
     console.log(`✓ ${u.role.padEnd(10)} ${u.email}`);
   }
 
-  // eslint-disable-next-line no-console
+   
   console.log(`\nDev password for all accounts: ${DEV_PASSWORD}`);
 }
 
 main()
   .catch((e) => {
-    // eslint-disable-next-line no-console
+     
     console.error(e);
     process.exit(1);
   })

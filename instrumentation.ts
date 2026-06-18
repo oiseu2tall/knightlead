@@ -9,7 +9,7 @@ export async function register() {
     const ONE_HOUR = 60 * 60 * 1000;
     setInterval(() => {
       pruneRateLimitEvents().catch((e) => {
-        // eslint-disable-next-line no-console
+         
         console.error("[rate-limit] prune failed:", e);
       });
     }, ONE_HOUR);

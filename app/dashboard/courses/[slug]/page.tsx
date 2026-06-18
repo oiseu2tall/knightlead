@@ -5,11 +5,13 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { Card, PageHeader, ProgressBar, Badge } from "@/components/ui/Primitives";
+import { Card, ProgressBar, Badge } from "@/components/ui/Primitives";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { SubNav } from "@/components/layout/SubNav";
 import { Breadcrumb } from "@/components/layout/Breadcrumb";
 import { Icon, type IconName } from "@/components/ui/Icon";
+import { signToken } from "@/lib/storage";
+import { ModuleFileLinks } from "@/components/files/ModuleFileLinks";
 
 const LEARN_TABS: { href: string; label: string; icon: IconName }[] = [
   { href: "/dashboard", label: "Dashboard", icon: "Dashboard" },
@@ -191,6 +193,11 @@ export default async function CoursePage({
             const modDone = mod.lessons.filter((l) => completed.has(l.id)).length;
             const modTotal = mod.lessons.length;
             const modPct = modTotal > 0 ? Math.round((modDone / modTotal) * 100) : 0;
+
+            const fileUrl = mod.fileKey
+              ? `/api/files/download/${encodeURIComponent(mod.fileKey)}?t=${signToken(mod.fileKey)}`
+              : null;
+
             return (
               <Card key={mod.id}>
                 <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
@@ -201,6 +208,12 @@ export default async function CoursePage({
                       {modPct > 0 && modPct < 100 && <Badge tone="info">in progress</Badge>}
                     </div>
                     <h2 className="mt-0.5 text-lg font-semibold text-ink">{mod.title}</h2>
+
+                    {mod.fileKey && mod.fileName && fileUrl && (
+                      <div className="mt-2">
+                        <ModuleFileLinks fileUrl={fileUrl} fileName={mod.fileName} />
+                      </div>
+                    )}
                   </div>
                   <div className="flex min-w-[140px] flex-col items-end gap-1">
                     <span className="text-xs tabular-nums text-ink-muted">

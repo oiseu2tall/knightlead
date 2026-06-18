@@ -9,7 +9,7 @@ export interface Mailer {
 
 class ConsoleMailer implements Mailer {
   async send({ to, subject, text }: SendArgs) {
-    // eslint-disable-next-line no-console
+     
     console.log(`[mail] to=${to} subject=${subject}\n${text}\n`);
   }
 }
