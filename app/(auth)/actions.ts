@@ -64,11 +64,13 @@ export async function registerAction(_prev: AuthFormState, formData: FormData): 
     data: { name, email, role: "STUDENT", hashedPassword },
   });
 
-  // Issue a verification email (best-effort; don't fail registration if mailer is down).
+  // Issue a verification email. If sending fails, surface it so the
+  // user knows to check their spam folder or contact support.
   try {
     await createVerificationToken(user.id);
-  } catch {
-    // log + continue
+  } catch (e) {
+    console.error("[mail] verification send failed:", e);
+    return { error: "Account created, but we couldn't send the verification email. Please try again or contact support." };
   }
 
   // Sign the user in.

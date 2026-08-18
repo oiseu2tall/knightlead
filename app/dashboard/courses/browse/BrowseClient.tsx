@@ -33,10 +33,12 @@ export type LearnTab = {
 export default function BrowseClient({
   courses,
   canEnroll,
+  isAdmin,
   tabs,
 }: {
   courses: BrowseCourse[];
   canEnroll: boolean;
+  isAdmin: boolean;
   tabs: LearnTab[];
 }) {
   const [query, setQuery] = useState("");
@@ -67,14 +69,14 @@ export default function BrowseClient({
         eyebrow="Learn · Browse catalog"
         title="Browse courses"
         description={
-          canEnroll
+          canEnroll || isAdmin
             ? `${courses.length} ${courses.length === 1 ? "course" : "courses"} available.`
             : "You're viewing the catalog as staff. Enrollment is for students only."
         }
         accent="brand"
       />
 
-      {!canEnroll && (
+      {!canEnroll && !isAdmin && (
         <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
           <strong className="font-semibold">Staff view:</strong> you can browse
           the catalog, but enrollment is restricted to students.

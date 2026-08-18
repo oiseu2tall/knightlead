@@ -70,7 +70,7 @@ function buildSections(role: Role): NavSection[] {
   const learnItems: NavItem[] = [
     { label: "Dashboard",   href: "/dashboard",             icon: "Dashboard",  roles: ["STUDENT", "INSTRUCTOR", "MANAGER", "ADMIN"] },
   ];
-  if (role === "STUDENT") learnItems.push(...STUDENT_ITEMS.slice(1));
+  if (role === "STUDENT" || role === "ADMIN") learnItems.push(...STUDENT_ITEMS.slice(1));
   sections.push({
     title: "Learn",
     accent: "bg-brand-500",

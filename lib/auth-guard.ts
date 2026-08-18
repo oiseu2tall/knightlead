@@ -72,10 +72,9 @@ export function withAuth<TArgs extends unknown[], TResult>(
 // ---------------------------------------------------------------------------
 
 /**
- * Only STUDENTs can enroll. Instructors, Managers, and Admins are
- * staff — they supervise the catalog, they don't take courses.
- * This is a product decision, not a hierarchy: ADMIN does NOT inherit
- * the right to enroll.
+ * Only STUDENTs can self-enroll. ADMIN has full access to student
+ * features for review/testing, but cannot enroll themselves here.
+ * Staff-enrollment for others is handled by `canEnrollOthers()`.
  */
 export function canEnroll(role: Role | undefined | null): boolean {
   return role === "STUDENT";

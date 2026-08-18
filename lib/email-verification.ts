@@ -22,7 +22,7 @@ export async function createVerificationToken(userId: string): Promise<string> {
   if (user) {
     const base = process.env.AUTH_URL ?? "http://localhost:3000";
     const url = `${base}/verify-email?token=${encodeURIComponent(token)}&uid=${encodeURIComponent(userId)}`;
-    await getMailer().send({
+    await (await getMailer()).send({
       to: user.email,
       subject: "Verify your Bootcamp LMS email",
       text: `Hi ${user.name ?? "there"},\n\nConfirm your email by opening: ${url}\n\nThis link expires in ${TOKEN_TTL_HOURS} hours.`,
@@ -30,9 +30,6 @@ export async function createVerificationToken(userId: string): Promise<string> {
 <p>Confirm your email by clicking the link below:</p>
 <p><a href="${url}">Verify email</a></p>
 <p>This link expires in ${TOKEN_TTL_HOURS} hours.</p>`,
-    }).catch((e) => {
-       
-      console.error("[mail] verification send failed:", e);
     });
   }
   return token;

@@ -62,14 +62,14 @@ export default function MyCoursesClient({
         title="My courses"
         description={
           enrollments.length === 0
-            ? role === "STUDENT"
+            ? role === "STUDENT" || role === "ADMIN"
               ? "Browse the catalog to enroll in your first course."
               : "Staff accounts don't take courses — supervise the catalog instead."
             : `${filtered.length} of ${enrollments.length} ${enrollments.length === 1 ? "course" : "courses"} shown`
         }
         accent="brand"
         action={
-          role === "STUDENT" && (
+          (role === "STUDENT" || role === "ADMIN") && (
             <Link
               href="/dashboard/courses/browse"
               className="inline-flex items-center gap-1.5 rounded-lg bg-hero px-4 py-2 text-sm font-semibold text-white shadow-[var(--shadow-pop)] hover:opacity-95"
@@ -89,14 +89,14 @@ export default function MyCoursesClient({
       {enrollments.length === 0 ? (
         <EmptyState
           icon="School"
-          title={role === "STUDENT" ? "No enrollments yet" : "Staff view"}
+          title={role === "STUDENT" || role === "ADMIN" ? "No enrollments yet" : "Staff view"}
           description={
-            role === "STUDENT"
+            role === "STUDENT" || role === "ADMIN"
               ? "Find a course in the catalog and click Enroll to get started."
               : "Staff accounts don't take courses. You can still browse the catalog at /dashboard/courses/browse."
           }
           action={
-            role === "STUDENT"
+            role === "STUDENT" || role === "ADMIN"
               ? { label: "Browse catalog", href: "/dashboard/courses/browse" }
               : { label: "Browse catalog", href: "/dashboard/courses/browse" }
           }

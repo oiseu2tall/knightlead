@@ -37,6 +37,7 @@ export default async function BrowseCourses() {
   return (
     <BrowseClient
       canEnroll={role === "STUDENT"}
+      isAdmin={role === "ADMIN"}
       tabs={TABS}
       courses={courses.map((c) => ({
         id: c.id,
