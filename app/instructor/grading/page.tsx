@@ -10,15 +10,23 @@ export const metadata = { title: "Grading · Instructor" };
 export default async function GradingQueue({
   searchParams,
 }: {
-  searchParams: Promise<{ status?: string }>;
+  searchParams: Promise<{ status?: string; assignmentId?: string }>;
 }) {
   const session = await auth();
   const userId = session!.user.id;
   const role = session!.user.role;
-  const { status: statusFilter } = await searchParams; // Next 16: Promise
+  const { status: statusFilter, assignmentId } = await searchParams; // Next 16: Promise
 
   // Admins see all; instructors see only their own courses.
-  const where = role === "ADMIN" ? {} : { assignment: { lesson: { module: { course: { instructorId: userId } } } } };
+  const baseWhere = role === "ADMIN"
+    ? {}
+    : { assignment: { lesson: { module: { course: { instructorId: userId } } } } as const };
+
+  const where: Record<string, unknown> = { ...baseWhere };
+
+  if (assignmentId) {
+    where.assignmentId = assignmentId;
+  }
 
   const whereWithStatus = statusFilter
     ? { ...where, status: statusFilter as "SUBMITTED" | "GRADED" | "RETURNED" | "LATE" }
@@ -46,15 +54,27 @@ export default async function GradingQueue({
     take: 50,
   });
 
+  const assignmentTitle = assignmentId
+    ? submissions[0]?.assignment.title ?? "Assignment"
+    : null;
+
   return (
     <>
       <PageHeader
         eyebrow="Teach · Grading"
-        title="Grading queue"
+        title={assignmentTitle ? `Submissions: ${assignmentTitle}` : "Grading queue"}
         description={`${submissions.length} ${submissions.length === 1 ? "submission" : "submissions"} awaiting review`}
         accent="accent"
         action={
           <div className="flex flex-wrap gap-2">
+            {assignmentId && (
+              <a
+                href="/instructor/grading"
+                className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-dim"
+              >
+                Clear filter
+              </a>
+            )}
             <a
               href="/instructor/grading?status=SUBMITTED"
               className="rounded-md border border-line bg-surface px-3 py-1.5 text-sm font-medium hover:bg-surface-dim"

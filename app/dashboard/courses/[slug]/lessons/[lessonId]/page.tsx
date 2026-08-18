@@ -9,7 +9,6 @@ import { Card, PageHeader, Badge } from "@/components/ui/Primitives";
 import { Icon } from "@/components/ui/Icon";
 import { SubNav } from "@/components/layout/SubNav";
 import { Breadcrumb } from "@/components/layout/Breadcrumb";
-import { MarkCompleteButton } from "./MarkCompleteButton";
 import { SubmissionForm } from "./SubmissionForm";
 import type { IconName } from "@/components/ui/Icon";
 
@@ -199,11 +198,11 @@ export default async function LessonPage({
             ) : (
               <>
                 <p className="mt-2 text-sm text-ink-muted">Not yet complete</p>
-                <MarkCompleteButton
-                  lessonId={lesson.id}
-                  courseSlug={slug}
-                  className="mt-3 w-full"
-                />
+                {assignment && submission && submission.status === "GRADED" && (
+                  <p className="mt-2 text-xs text-green-700">
+                    Assignment graded — lesson marked complete
+                  </p>
+                )}
               </>
             )}
           </Card>

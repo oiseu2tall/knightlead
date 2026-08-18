@@ -38,12 +38,16 @@ export async function gradeSubmission(formData: FormData): Promise<GradeResult> 
     where: { id: submissionId },
     select: {
       id: true,
+      userId: true,
       assignment: {
         select: {
+          id: true,
+          lessonId: true,
           maxScore: true,
           lesson: {
             select: {
-              module: { select: { course: { select: { instructorId: true, slug: true } } } },
+              id: true,
+              module: { select: { courseId: true, course: { select: { slug: true, instructorId: true } } } },
             },
           },
         },
@@ -74,6 +78,49 @@ export async function gradeSubmission(formData: FormData): Promise<GradeResult> 
     },
   });
 
+  // Auto-complete the lesson when the assignment is graded.
+  const lessonId = sub.assignment.lessonId;
+  const courseId = sub.assignment.lesson.module.courseId;
+  const courseSlug = sub.assignment.lesson.module.course.slug;
+  const userId = sub.userId;
+
+  try {
+    await db.lessonProgress.create({ data: { userId, lessonId } });
+  } catch (e: unknown) {
+    if (!(e as { code?: string }).code || (e as { code?: string }).code !== "P2002") throw e;
+  }
+
+  const lessonIds = await db.lesson.findMany({
+    where: { module: { courseId } },
+    select: { id: true },
+  });
+  const lessonIdList = lessonIds.map((l) => l.id);
+
+  const [completed, total] = await Promise.all([
+    lessonIdList.length
+      ? db.lessonProgress.count({
+          where: { userId, lessonId: { in: lessonIdList } },
+        })
+      : 0,
+    lessonIdList.length,
+  ]);
+  const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
+
+  const enrollment = await db.enrollment.findUnique({
+    where: { userId_courseId: { userId, courseId } },
+    select: { id: true },
+  });
+  if (enrollment) {
+    await db.enrollment.update({
+      where: { id: enrollment.id },
+      data: {
+        progress: percent,
+        status: percent === 100 ? "COMPLETED" : "ACTIVE",
+        completedAt: percent === 100 ? new Date() : null,
+      },
+    });
+  }
+
   // Audit log entry.
   await db.auditLog.create({
     data: {
@@ -85,7 +132,11 @@ export async function gradeSubmission(formData: FormData): Promise<GradeResult> 
   });
 
   revalidatePath("/instructor/grading");
-  revalidatePath(`/dashboard/courses/${sub.assignment.lesson.module.course.slug}`);
+  revalidatePath(`/dashboard/courses/${courseSlug}`);
+  revalidatePath(`/dashboard/courses/${courseSlug}/lessons/${lessonId}`);
+  revalidatePath("/dashboard");
+  const assignmentId = sub.assignment.id;
+  revalidatePath(`/instructor/grading?assignmentId=${assignmentId}`);
   return { ok: true, status: "GRADED" };
 }
 
@@ -94,10 +145,25 @@ export async function returnSubmission(formData: FormData): Promise<GradeResult>
   const submissionId = String(formData.get("submissionId") ?? "");
   if (!submissionId) return { ok: false, error: "Missing submission" };
 
+  const sub = await db.submission.findUnique({
+    where: { id: submissionId },
+    select: {
+      assignment: {
+        select: {
+          id: true,
+          lesson: { select: { module: { select: { course: { select: { slug: true } } } } } },
+        },
+      },
+    },
+  });
+
   await db.submission.update({
     where: { id: submissionId },
     data: { status: "RETURNED", gradedById: grader.id, gradedAt: new Date() },
   });
   revalidatePath("/instructor/grading");
+  revalidatePath(`/dashboard/courses/${sub?.assignment.lesson.module.course.slug ?? ""}`);
+  const assignmentId = sub?.assignment.id;
+  if (assignmentId) revalidatePath(`/instructor/grading?assignmentId=${assignmentId}`);
   return { ok: true, status: "RETURNED" };
 }

@@ -71,8 +71,12 @@ export async function submitAssignment(formData: FormData): Promise<SubmitResult
   // Idempotent create: if a submission already exists, update it (resubmit).
   const existing = await db.submission.findFirst({
     where: { assignmentId, userId: user.id },
-    select: { id: true },
+    select: { id: true, status: true },
   });
+
+  if (existing && (existing.status === "GRADED" || existing.status === "RETURNED")) {
+    return { ok: false, error: "This submission has already been graded and can no longer be edited." };
+  }
 
   const data = {
     content,

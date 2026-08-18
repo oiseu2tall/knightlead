@@ -47,7 +47,7 @@ const STUDENT_ITEMS: NavItem[] = [
 ];
 
 const INSTRUCTOR_ITEMS: NavItem[] = [
-  { label: "Cohorts",     href: "/instructor/cohorts",   icon: "Group",       roles: ["INSTRUCTOR", "ADMIN"], description: "Students you teach" },
+  { label: "My courses",  href: "/instructor/courses",  icon: "School",       roles: ["INSTRUCTOR", "ADMIN"], description: "Courses you teach" },
   { label: "Grading",     href: "/instructor/grading",   icon: "Assignment",  roles: ["INSTRUCTOR", "ADMIN"], description: "Queue of submissions" },
 ];
 
@@ -423,6 +423,7 @@ function Breadcrumb({ pathname, role }: { pathname: string; role: Role }) {
   // next to the brand mark. Helps the user orient as they navigate.
   const map: Array<[RegExp, string]> = [
     [/^\/dashboard(\/|$)/,                "Learn"],
+    [/^\/instructor\/courses(\/|$)/,      "Teach · Courses"],
     [/^\/instructor\/cohorts(\/|$)/,      "Teach · Cohorts"],
     [/^\/instructor\/grading(\/|$)/,      "Teach · Grading"],
     [/^\/admin\/cohorts(\/|$)/,           "Manage · Cohorts"],

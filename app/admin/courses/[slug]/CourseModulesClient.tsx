@@ -152,8 +152,14 @@ export default function CourseModulesClient({ course, initialModules, role }: Pr
                       )}
                     </div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <DropdownMenu
+                   <div className="flex items-center gap-2">
+                     <Link
+                       href={`/admin/courses/${course.slug}/modules/${m.id}`}
+                       className="inline-flex items-center gap-1.5 rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs font-medium text-ink hover:bg-surface-dim"
+                     >
+                       View
+                     </Link>
+                     <DropdownMenu
                       ariaLabel={`Actions for module ${m.title}`}
                       items={[
                         {

@@ -8,6 +8,7 @@ import { Card, Badge } from "@/components/ui/Primitives";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { Breadcrumb } from "@/components/layout/Breadcrumb";
 import { SubNav } from "@/components/layout/SubNav";
+import type { IconName } from "@/components/ui/Icon";
 import Link from "next/link";
 import { signToken } from "@/lib/storage";
 import { ModuleFileLinks } from "@/components/files/ModuleFileLinks";
@@ -84,10 +85,10 @@ export default async function InstructorCourseModulesPage() {
   const totalModules = rows.reduce((acc, r) => acc + r.modules.length, 0);
 
   const subNavItems = [
-    { href: "/instructor", label: "Overview", icon: "Dashboard" },
-    { href: "/instructor/grading", label: "Grading", icon: "Assignment" },
-    { href: "/instructor/cohorts", label: "Cohorts", icon: "Group" },
-    { href: "/instructor/course-modules", label: "Course modules", icon: "Layers" },
+    { href: "/instructor", label: "Overview", icon: "Dashboard" as IconName },
+    { href: "/instructor/grading", label: "Grading", icon: "Assignment" as IconName },
+    { href: "/instructor/cohorts", label: "Cohorts", icon: "Group" as IconName },
+    { href: "/instructor/course-modules", label: "Course modules", icon: "Layers" as IconName },
   ];
 
   return (

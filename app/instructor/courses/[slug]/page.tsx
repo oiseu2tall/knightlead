@@ -135,6 +135,12 @@ export default async function InstructorCoursePage({
                     <div className="w-32">
                       <ProgressBar value={0} />
                     </div>
+                    <Link
+                      href={`/instructor/courses/${course.slug}/modules/${mod.id}`}
+                      className="text-xs text-brand-600 hover:underline"
+                    >
+                      View assignments
+                    </Link>
                   </div>
                 </div>
 

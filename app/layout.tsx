@@ -33,7 +33,7 @@ export default function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="en" className={inter.variable} suppressHydrationWarning>
-      <body>
+      <body suppressHydrationWarning>
         <Script
           id="theme-boot"
           strategy="beforeInteractive"

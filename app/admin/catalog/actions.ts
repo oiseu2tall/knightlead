@@ -499,3 +499,205 @@ export async function staffEnrollStudent(formData: FormData): Promise<StaffEnrol
   revalidatePath("/instructor/cohorts");
   return { ok: true, created: true };
 }
+
+// ---------------------------------------------------------------------------
+// Assignment CRUD (module-level)
+// ---------------------------------------------------------------------------
+
+export type AssignmentResult =
+  | { ok: true; id?: string }
+  | { ok: false; error: string };
+
+const assignmentSchema = z.object({
+  id: z.string().min(1).max(64).optional(),
+  lessonId: z.string().min(1, "Lesson is required").max(64),
+  title: z.string().trim().min(1, "Title is required").max(160),
+  prompt: z.string().trim().min(1, "Prompt is required").max(10_000),
+  dueDate: z.string().trim().optional().or(z.literal("")),
+  maxScore: z.coerce.number().int().min(1).max(1000).default(100),
+  attachments: z.array(z.string().min(1).max(500)).max(5).default([]),
+});
+
+export async function upsertAssignment(formData: FormData): Promise<AssignmentResult> {
+  const actor = await requireRole("MANAGER", "ADMIN");
+  const ip = await clientIp();
+  const limited = await rateLimit(`catalog:assignment:${actor.id}:${ip}`, { limit: 60, windowMs: 60_000 });
+  if (!limited.ok) return { ok: false, error: "Too many edits — slow down." };
+
+  let attachments: string[] = [];
+  try {
+    const raw = formData.get("attachments");
+    if (typeof raw === "string" && raw) attachments = JSON.parse(raw) as string[];
+  } catch {
+    return { ok: false, error: "Invalid attachment payload" };
+  }
+
+  const parsed = assignmentSchema.safeParse({
+    id: formData.get("id") || undefined,
+    lessonId: formData.get("lessonId"),
+    title: formData.get("title"),
+    prompt: formData.get("prompt"),
+    dueDate: formData.get("dueDate") ?? "",
+    maxScore: formData.get("maxScore") ?? 100,
+    attachments,
+  });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  const { id, lessonId, title, prompt, dueDate, maxScore } = parsed.data;
+
+  const lesson = await db.lesson.findUnique({
+    where: { id: lessonId },
+    select: { id: true, module: { select: { courseId: true, course: { select: { slug: true, title: true } } } } },
+  });
+  if (!lesson) return { ok: false, error: "Lesson not found" };
+
+  const due = dueDate ? new Date(dueDate) : null;
+  if (dueDate && isNaN(due!.getTime())) return { ok: false, error: "Invalid due date" };
+
+  if (id) {
+    const existing = await db.assignment.findUnique({ where: { id }, select: { id: true, lessonId: true } });
+    if (!existing) return { ok: false, error: "Assignment not found" };
+    if (existing.lessonId !== lessonId) return { ok: false, error: "Assignment doesn't belong to this lesson" };
+
+    await db.assignment.update({
+      where: { id },
+      data: { title, prompt, dueDate: due, maxScore, attachments },
+    });
+    await db.auditLog.create({
+      data: { userId: actor.id, action: "UPDATE_ASSIGNMENT", resource: `assignment:${id}`, metadata: { title, maxScore } },
+    });
+    revalidatePath(`/admin/courses/${lesson.module.course.slug}`);
+    return { ok: true, id };
+  }
+
+  const created = await db.assignment.create({
+    data: { lessonId, title, prompt, dueDate: due, maxScore, attachments },
+  });
+  await db.auditLog.create({
+    data: { userId: actor.id, action: "CREATE_ASSIGNMENT", resource: `assignment:${created.id}`, metadata: { title, lessonId, maxScore } },
+  });
+  revalidatePath(`/admin/courses/${lesson.module.course.slug}`);
+  return { ok: true, id: created.id };
+}
+
+export async function deleteAssignment(formData: FormData): Promise<AssignmentResult> {
+  const actor = await requireRole("MANAGER", "ADMIN");
+  const ip = await clientIp();
+  const limited = await rateLimit(`catalog:assignment-del:${actor.id}:${ip}`, { limit: 60, windowMs: 60_000 });
+  if (!limited.ok) return { ok: false, error: "Too many edits — slow down." };
+
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { ok: false, error: "Missing assignment id" };
+
+  const existing = await db.assignment.findUnique({
+    where: { id },
+    select: { id: true, title: true, lesson: { select: { module: { select: { course: { select: { slug: true, title: true } } } } } } },
+  });
+  if (!existing) return { ok: false, error: "Assignment not found" };
+
+  await db.assignment.delete({ where: { id } });
+  await db.auditLog.create({
+    data: { userId: actor.id, action: "DELETE_ASSIGNMENT", resource: `assignment:${id}`, metadata: { title: existing.title } },
+  });
+  revalidatePath(`/admin/courses/${existing.lesson.module.course.slug}`);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
+// Lesson CRUD (module-level)
+// ---------------------------------------------------------------------------
+
+export type LessonResult =
+  | { ok: true; id?: string }
+  | { ok: false; error: string };
+
+const lessonSchema = z.object({
+  id: z.string().min(1).max(64).optional(),
+  moduleId: z.string().min(1, "Module is required").max(64),
+  title: z.string().trim().min(1, "Title is required").max(160),
+  contentType: z.enum(["VIDEO", "ARTICLE", "QUIZ", "ASSIGNMENT", "LIVE_SESSION"]),
+  content: z.string().trim().max(20_000).optional().default(""),
+  videoUrl: z.string().trim().url().max(500).optional().or(z.literal("")),
+  durationMin: z.coerce.number().int().min(0).max(600).optional().or(z.literal("")),
+  order: z.coerce.number().int().min(0).max(999),
+  isFree: z.string().optional(),
+});
+
+export async function upsertLesson(formData: FormData): Promise<LessonResult> {
+  const actor = await requireRole("MANAGER", "ADMIN");
+  const ip = await clientIp();
+  const limited = await rateLimit(`catalog:lesson:${actor.id}:${ip}`, { limit: 60, windowMs: 60_000 });
+  if (!limited.ok) return { ok: false, error: "Too many edits — slow down." };
+
+  const parsed = lessonSchema.safeParse({
+    id: formData.get("id") || undefined,
+    moduleId: formData.get("moduleId"),
+    title: formData.get("title"),
+    contentType: formData.get("contentType"),
+    content: formData.get("content") ?? "",
+    videoUrl: formData.get("videoUrl") ?? "",
+    durationMin: formData.get("durationMin") ?? "",
+    order: formData.get("order"),
+    isFree: formData.get("isFree") ?? undefined,
+  });
+  if (!parsed.success) return { ok: false, error: parsed.error.issues[0]?.message ?? "Invalid input" };
+  const { id, moduleId, title, contentType, content, videoUrl, durationMin, order, isFree } = parsed.data;
+
+  const mod = await db.module.findUnique({
+    where: { id: moduleId },
+    select: { id: true, courseId: true, course: { select: { slug: true, title: true } } },
+  });
+  if (!mod) return { ok: false, error: "Module not found" };
+
+  const data = {
+    title,
+    contentType,
+    content: content || null,
+    videoUrl: videoUrl || null,
+    durationMin: durationMin ? Number(durationMin) : null,
+    order,
+    isFree: isFree === "on",
+  };
+
+  if (id) {
+    const existing = await db.lesson.findUnique({ where: { id }, select: { id: true, moduleId: true } });
+    if (!existing) return { ok: false, error: "Lesson not found" };
+    if (existing.moduleId !== moduleId) return { ok: false, error: "Lesson doesn't belong to this module" };
+
+    await db.lesson.update({ where: { id }, data });
+    await db.auditLog.create({
+      data: { userId: actor.id, action: "UPDATE_LESSON", resource: `lesson:${id}`, metadata: { title, contentType } },
+    });
+    revalidatePath(`/admin/courses/${mod.course.slug}`);
+    return { ok: true, id };
+  }
+
+  const created = await db.lesson.create({ data: { ...data, moduleId } });
+  await db.auditLog.create({
+    data: { userId: actor.id, action: "CREATE_LESSON", resource: `lesson:${created.id}`, metadata: { title, contentType, moduleId } },
+  });
+  revalidatePath(`/admin/courses/${mod.course.slug}`);
+  return { ok: true, id: created.id };
+}
+
+export async function deleteLesson(formData: FormData): Promise<LessonResult> {
+  const actor = await requireRole("MANAGER", "ADMIN");
+  const ip = await clientIp();
+  const limited = await rateLimit(`catalog:lesson-del:${actor.id}:${ip}`, { limit: 60, windowMs: 60_000 });
+  if (!limited.ok) return { ok: false, error: "Too many edits — slow down." };
+
+  const id = String(formData.get("id") ?? "");
+  if (!id) return { ok: false, error: "Missing lesson id" };
+
+  const existing = await db.lesson.findUnique({
+    where: { id },
+    select: { id: true, title: true, module: { select: { course: { select: { slug: true, title: true } } } } },
+  });
+  if (!existing) return { ok: false, error: "Lesson not found" };
+
+  await db.lesson.delete({ where: { id } });
+  await db.auditLog.create({
+    data: { userId: actor.id, action: "DELETE_LESSON", resource: `lesson:${id}`, metadata: { title: existing.title } },
+  });
+  revalidatePath(`/admin/courses/${existing.module.course.slug}`);
+  return { ok: true };
+}

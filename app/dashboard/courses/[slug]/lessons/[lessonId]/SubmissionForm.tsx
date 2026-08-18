@@ -133,34 +133,10 @@ export function SubmissionForm({
               <p className="mt-1 whitespace-pre-wrap">{existing.feedback}</p>
             </div>
           )}
+          <p className="mt-3 text-xs text-green-800">
+            This submission has been graded and can no longer be edited.
+          </p>
         </div>
-        <details className="rounded-xl border border-line bg-surface">
-          <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-ink">
-            <span className="inline-flex items-center gap-1.5">
-              <Icon.Edit className="h-4 w-4" />
-              Resubmit
-            </span>
-          </summary>
-          <div className="border-t border-line p-4">
-            <SubmissionFields
-              formRef={formRef}
-              content={content}
-              setContent={setContent}
-              attachments={attachments}
-              setAttachments={setAttachments}
-              onAddFile={onAddFile}
-              onFiles={onFiles}
-              uploadState={uploadState}
-              dragOver={dragOver}
-              setDragOver={setDragOver}
-              error={error}
-              pending={pending}
-              onSubmit={onSubmit}
-              submitLabel="Resubmit"
-              maxScore={maxScore}
-            />
-          </div>
-        </details>
       </div>
     );
   }
@@ -371,7 +347,7 @@ function SubmissionFields(props: {
 
       <div className="flex flex-wrap items-center justify-between gap-2 border-t border-line pt-3">
         <p className="text-xs text-ink-muted">
-          You can update your submission until the instructor grades it.
+          You can update your submission until it is graded.
         </p>
         <Button
           type="submit"
