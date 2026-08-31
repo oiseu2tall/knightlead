@@ -81,10 +81,7 @@ export function canEnroll(role: Role | undefined | null): boolean {
 }
 
 /**
- * Staff can enroll STUDENTs on their behalf. MANAGER and ADMIN use
- * this to assign students to cohorts and courses from the catalog
- * admin panel. INSTRUCTORs cannot — they only grade; the catalog
- * belongs to MANAGER + ADMIN.
+ * Staff who can enroll STUDENTs on their behalf. MANAGER and ADMIN.
  */
 export function canEnrollOthers(role: Role | undefined | null): boolean {
   return role === "MANAGER" || role === "ADMIN";
