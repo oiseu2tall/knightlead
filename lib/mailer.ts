@@ -39,17 +39,16 @@ class NodemailerMailer implements Mailer {
 /**
  * Ethereal mailer — creates a throwaway test account and sends via
  * Nodemailer. Prints the inbox URL to the console so you can click
- * through and view the message. Great for local development.
+ * through and view the message. Great for local development when Resend
+ * is not configured or the from-domain is unverified.
  */
 class EtherealMailer implements Mailer {
-  private testAccount: { user: string; pass: string; smtp: { host: string; port: number; secure: boolean } } | null = null;
   private transporter: import("nodemailer").Transporter | null = null;
 
   async send({ to, subject, html, text }: SendArgs) {
     if (!this.transporter) {
       const nodemailer = await import("nodemailer");
       const account = await nodemailer.createTestAccount();
-      this.testAccount = account;
       this.transporter = nodemailer.createTransport({
         host: account.smtp.host,
         port: account.smtp.port,
@@ -89,4 +88,37 @@ export async function getMailer(): Promise<Mailer> {
 
   _mailer = new EtherealMailer();
   return _mailer;
+}
+
+let _fallback: Mailer | null = null;
+
+/**
+ * Returns a mailer that tries the configured primary provider (Resend,
+ * Nodemailer SMTP) and, if it fails, falls back to Ethereal so that
+ * verification emails are never silently lost during development.
+ */
+export async function getMailerWithFallback(): Promise<Mailer> {
+  const primary = await getMailer();
+  if (primary instanceof EtherealMailer) return primary;
+
+  if (!_fallback) _fallback = new EtherealMailer();
+  return new FallbackMailer(primary, _fallback);
+}
+
+class FallbackMailer implements Mailer {
+  constructor(private primary: Mailer, private fallback: Mailer) {}
+
+  async send(args: SendArgs) {
+    try {
+      await this.primary.send(args);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.warn(
+        "[mail] Primary provider failed — falling back to Ethereal test inbox.\n" +
+          `Reason: ${msg}\n` +
+          "To fix: verify your domain at https://resend.com/domains or set MAIL_FROM to a verified address.",
+      );
+      await this.fallback.send(args);
+    }
+  }
 }

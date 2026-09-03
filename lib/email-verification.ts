@@ -1,7 +1,7 @@
 // Email verification — issue, send, and consume a VerificationToken.
 import { randomBytes } from "node:crypto";
 import { db } from "@/lib/db";
-import { getMailer } from "@/lib/mailer";
+import { getMailerWithFallback } from "@/lib/mailer";
 
 const TOKEN_TTL_HOURS = 24;
 
@@ -22,7 +22,7 @@ export async function createVerificationToken(userId: string): Promise<string> {
   if (user) {
     const base = process.env.AUTH_URL ?? "http://localhost:3000";
     const url = `${base}/verify-email?token=${encodeURIComponent(token)}&uid=${encodeURIComponent(userId)}`;
-    await (await getMailer()).send({
+    await (await getMailerWithFallback()).send({
       to: user.email,
       subject: "Verify your Bootcamp LMS email",
       text: `Hi ${user.name ?? "there"},\n\nConfirm your email by opening: ${url}\n\nThis link expires in ${TOKEN_TTL_HOURS} hours.`,
