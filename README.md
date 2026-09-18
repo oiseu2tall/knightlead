@@ -16,7 +16,7 @@ A full-stack Learning Management System for cohort-based bootcamps. Built on **N
 - 🏷️ **Role filter chips + live search** — every list page (cohorts, courses, enrollments, users) has a debounced search input and status filter chips
 - 🔒 **Admin panel** — user search, role filter chips, pagination, inline role change (with audit log), per-user detail with enrollments / submissions / audit timeline. ADMIN only.
 - 📎 **Local file storage** — HMAC-signed token URLs, MIME allowlist, 50MB cap, path-traversal guards, S3-shaped interface for easy swap
-- ✉️ **Email verification** — single-use tokens (24h TTL), Resend or console transport, auto-redirect to `/verify-email/pending` until verified
+- ✉️ **Email verification** — OTP-style (8-char code, no prefix), Nodemailer via Gmail SMTP, fallback chain (Gmail → Ethereal → console), auto-redirect to `/verify-email/pending` until verified
 - 🛡️ **Security** — proxy-based route gating + server-side re-checks in every layout/action, Zod validation everywhere, per-IP and per-user rate limits (Postgres-backed), `X-Content-Type-Options: nosniff`, HTTP-only cookies
 - 🚀 **CSS-only long-list virtualization** — `content-visibility: auto` on card grids and table rows; "Show more" pagination via the `<LongList>` component
 - 🌗 **Theme** — class-based light/dark toggle (no system-preference override), `next/script` no-flash boot, persisted in `localStorage`, default = light
@@ -108,7 +108,7 @@ The `<Modal>` component is a thin wrapper over the native `<dialog>` element. Ev
 | Auth        | Auth.js v5 (`next-auth@5.0.0-beta.31`)  |
 | Database    | PostgreSQL 16 via Prisma 6              |
 | Validation  | Zod                                      |
-| Mailer      | Resend HTTP API (console fallback)      |
+| Mailer      | Nodemailer (Gmail SMTP) with fallback chain     |
 | Storage     | Local disk (`./uploads`)                |
 | Rate limit  | Postgres sliding window                 |
 | Run scripts | `tsx` + `cross-env`                     |
@@ -176,7 +176,8 @@ See [`.env.example`](.env.example) for the full list. Key ones:
 | `DATABASE_URL`     | Postgres connection string                             |
 | `AUTH_SECRET`      | 32+ random bytes; signs session JWTs and file tokens   |
 | `AUTH_URL`         | Public base URL (used in verification emails)          |
-| `RESEND_API_KEY`   | Email delivery; omit to log to console                 |
+| `EMAIL_ADDRESS`    | Gmail address for Nodemailer SMTP                      |
+| `EMAIL_APP_PASSWORD` | Gmail app-specific password for Nodemailer           |
 | `MAIL_FROM`        | `From:` address for transactional mail                 |
 | `UPLOAD_DIR`       | Local file storage path (default `./uploads`)          |
 
@@ -224,7 +225,7 @@ app/
       RoleSelect.tsx            Client component with optimistic role update
       actions.ts                changeUserRole (with audit log + self-demotion guard)
       [id]/page.tsx             Per-user detail with audit timeline
-  verify-email/                 Verification flow (/verify-email, /pending, /resend)
+  verify-email/                 OTP verification flow (/verify-email, /pending, /resend)
   forbidden/                    403 page (proxy target)
   not-found.tsx                 Branded 404
   layout.tsx                    Root layout, theme boot script
@@ -254,8 +255,8 @@ lib/
   db.ts                         Prisma singleton (hot-reload safe)
   storage.ts                    Local-disk file store + HMAC-signed tokens
   rate-limit.ts                 Postgres sliding-window rate limiter
-  email-verification.ts         Verification token issue/consume (single-use)
-  mailer.ts                     Pluggable transport (Resend / console)
+  email-verification.ts         OTP code issue/consume (single-use, 15-min TTL)
+  mailer.ts                     Pluggable transport (Gmail SMTP → Ethereal → console)
   role.ts                       ROLE_META + roleLabel/roleSection helpers (UI-only)
   use-upload.ts                 Client upload hook (React state machine)
 
@@ -358,7 +359,7 @@ npx prisma db seed         # Same as npm run db:seed
 Before going live:
 
 - [ ] Set a strong `AUTH_SECRET` (32+ random bytes)
-- [ ] Configure `RESEND_API_KEY` and a verified `MAIL_FROM` domain
+- [ ] Configure `EMAIL_ADDRESS` + `EMAIL_APP_PASSWORD` for Gmail SMTP, or a custom `NODEMAILER_URL`
 - [ ] Run behind HTTPS (sets the `Secure` cookie flag)
 - [ ] Add CSP, HSTS, `X-Frame-Options: DENY` via `next.config.ts` `headers()`
 - [ ] Replace local-disk storage with S3/R2 (swap the body of `lib/storage.ts` — the S3-shaped interface is already in place)
