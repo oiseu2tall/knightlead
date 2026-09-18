@@ -18,6 +18,43 @@ const changeRoleSchema = z.object({
 
 export type ChangeRoleResult = { ok: true } | { ok: false; error: string };
 
+export type DeleteUserResult = { ok: true } | { ok: false; error: string };
+const deleteSchema = z.object({ id: z.string().min(1).max(64) });
+
+export async function deleteUser(formData: FormData): Promise<DeleteUserResult> {
+  const admin = await requireRole("ADMIN");
+
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const limited = await rateLimit(`admin-user-del:${admin.id}:${ip}`, {
+    limit: 10, windowMs: 60_000,
+  });
+  if (!limited.ok) return { ok: false, error: "Too many deletions — slow down." };
+
+  const parsed = deleteSchema.safeParse({ id: formData.get("id") });
+  if (!parsed.success) return { ok: false, error: "Missing or invalid user id" };
+  const { id } = parsed.data;
+
+  if (id === admin.id) return { ok: false, error: "You can't delete your own account." };
+
+  const existing = await db.user.findUnique({ where: { id }, select: { id: true, email: true, name: true, role: true } });
+  if (!existing) return { ok: false, error: "User not found" };
+
+  await db.user.delete({ where: { id } });
+
+  await db.auditLog.create({
+    data: {
+      userId: admin.id,
+      action: "DELETE_USER",
+      resource: `user:${id}`,
+      metadata: { email: existing.email, name: existing.name, role: existing.role },
+    },
+  });
+
+  revalidatePath("/admin/users");
+  revalidatePath(`/admin/users/${id}`);
+  return { ok: true };
+}
+
 export async function changeUserRole(formData: FormData): Promise<ChangeRoleResult> {
   const admin = await requireRole("ADMIN");
 

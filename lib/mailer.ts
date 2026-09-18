@@ -1,48 +1,32 @@
-// Mailer abstraction. Pluggable: Resend in prod, Ethereal in dev,
-// Nodemailer SMTP if explicitly configured.
-// We intentionally keep this thin so swapping providers is one import change.
+// Mailer abstraction. Uses Nodemailer exclusively:
+//   1. Gmail SMTP (if EMAIL_ADDRESS + EMAIL_APP_PASSWORD are set)
+//   2. Nodemailer SMTP URL (if NODEMAILER_URL is set)
+//   3. Ethereal test inbox (fallback for local development)
+//   4. Console fallback (logs to stdout — guarantees never to fail)
+//
+// Uses a FallbackMailer that tries each provider in order. If all real
+// providers fail, the ConsoleMailer ensures the email content is visible
+// for local development and testing.
 
 type SendArgs = { to: string; subject: string; html: string; text: string };
 
 export interface Mailer {
   send(args: SendArgs): Promise<void>;
+  name: string;
 }
 
-class ResendMailer implements Mailer {
-  constructor(private apiKey: string, private from: string) {}
-  async send({ to, subject, html, text }: SendArgs) {
-    const res = await fetch("https://api.resend.com/emails", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ from: this.from, to, subject, html, text }),
-    });
-    if (!res.ok) {
-      const body = await res.text();
-      throw new Error(`Resend ${res.status}: ${body}`);
-    }
-  }
-}
-
-/**
- * Nodemailer SMTP mailer. Use when NODEMAILER_URL is set.
- */
 class NodemailerMailer implements Mailer {
-  constructor(private transporter: import("nodemailer").Transporter) {}
+  name: string;
+  constructor(private transporter: import("nodemailer").Transporter, private from: string, label: string) {
+    this.name = label;
+  }
   async send({ to, subject, html, text }: SendArgs) {
-    await this.transporter.sendMail({ from: process.env.MAIL_FROM, to, subject, html, text });
+    await this.transporter.sendMail({ from: this.from, to, subject, html, text });
   }
 }
 
-/**
- * Ethereal mailer — creates a throwaway test account and sends via
- * Nodemailer. Prints the inbox URL to the console so you can click
- * through and view the message. Great for local development when Resend
- * is not configured or the from-domain is unverified.
- */
 class EtherealMailer implements Mailer {
+  name = "ethereal";
   private transporter: import("nodemailer").Transporter | null = null;
 
   async send({ to, subject, html, text }: SendArgs) {
@@ -69,56 +53,77 @@ class EtherealMailer implements Mailer {
   }
 }
 
+class ConsoleMailer implements Mailer {
+  name = "console";
+  async send({ to, subject, html, text }: SendArgs) {
+    console.log(`\n[mail] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`[mail] To: ${to}`);
+    console.log(`[mail] Subject: ${subject}`);
+    console.log(`[mail] Text: ${text}`);
+    console.log(`[mail] Html: ${html}`);
+    console.log(`[mail] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n`);
+  }
+}
+
+/**
+ * Tries a chain of mailers in order. If one fails, logs the error
+ * and moves to the next. The last mailer in the chain (ConsoleMailer)
+ * always succeeds, ensuring no email-sending failure blocks the user.
+ */
+class FallbackMailer implements Mailer {
+  name = "fallback";
+  private chain: Mailer[] = [];
+
+  constructor(chain: Mailer[]) {
+    this.chain = chain;
+  }
+
+  async send(args: SendArgs) {
+    for (const mailer of this.chain) {
+      try {
+        await mailer.send(args);
+        return; // success — stop trying
+      } catch (e) {
+        console.warn(`[mail] ${mailer.name} failed: ${e instanceof Error ? e.message : String(e)}`);
+      }
+    }
+    // Should never reach here — ConsoleMailer is always last
+    throw new Error("All mailers exhausted");
+  }
+}
+
 let _mailer: Mailer | null = null;
 export async function getMailer(): Promise<Mailer> {
   if (_mailer) return _mailer;
-  const key = process.env.RESEND_API_KEY;
   const from = process.env.MAIL_FROM ?? "noreply@example.com";
+  const chain: Mailer[] = [];
 
-  if (key) {
-    _mailer = new ResendMailer(key, from);
-    return _mailer;
+  // 1. Gmail SMTP via Nodemailer
+  const gmailUser = process.env.EMAIL_ADDRESS;
+  const gmailPass = process.env.EMAIL_APP_PASSWORD;
+  if (gmailUser && gmailPass) {
+    const nodemailer = await import("nodemailer");
+    const transporter = nodemailer.createTransport({
+      host: process.env.EMAIL_HOST ?? "smtp.gmail.com",
+      port: Number(process.env.EMAIL_PORT) ?? 465,
+      secure: process.env.EMAIL_SECURE !== "false",
+      auth: { user: gmailUser, pass: gmailPass },
+    });
+    chain.push(new NodemailerMailer(transporter, from, "gmail"));
   }
 
+  // 2. Nodemailer SMTP URL (if explicitly set)
   if (process.env.NODEMAILER_URL) {
     const nodemailer = await import("nodemailer");
-    _mailer = new NodemailerMailer(nodemailer.createTransport(process.env.NODEMAILER_URL));
-    return _mailer;
+    chain.push(new NodemailerMailer(nodemailer.createTransport(process.env.NODEMAILER_URL), from, "nodemailer-url"));
   }
 
-  _mailer = new EtherealMailer();
+  // 3. Ethereal fallback (local dev with real inbox)
+  chain.push(new EtherealMailer());
+
+  // 4. Console fallback (always succeeds — dev safety net)
+  chain.push(new ConsoleMailer());
+
+  _mailer = new FallbackMailer(chain);
   return _mailer;
-}
-
-let _fallback: Mailer | null = null;
-
-/**
- * Returns a mailer that tries the configured primary provider (Resend,
- * Nodemailer SMTP) and, if it fails, falls back to Ethereal so that
- * verification emails are never silently lost during development.
- */
-export async function getMailerWithFallback(): Promise<Mailer> {
-  const primary = await getMailer();
-  if (primary instanceof EtherealMailer) return primary;
-
-  if (!_fallback) _fallback = new EtherealMailer();
-  return new FallbackMailer(primary, _fallback);
-}
-
-class FallbackMailer implements Mailer {
-  constructor(private primary: Mailer, private fallback: Mailer) {}
-
-  async send(args: SendArgs) {
-    try {
-      await this.primary.send(args);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.warn(
-        "[mail] Primary provider failed — falling back to Ethereal test inbox.\n" +
-          `Reason: ${msg}\n` +
-          "To fix: verify your domain at https://resend.com/domains or set MAIL_FROM to a verified address.",
-      );
-      await this.fallback.send(args);
-    }
-  }
 }

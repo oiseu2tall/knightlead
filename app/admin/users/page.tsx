@@ -6,6 +6,7 @@ import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { Card, PageHeader, Badge, RoleBadge } from "@/components/ui/Primitives";
 import { RoleSelect } from "./RoleSelect";
+import { UserRowActions } from "./UserRowActions";
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 
@@ -156,13 +157,8 @@ export default async function AdminUsersPage({
                     <td className="py-3 pr-4 text-xs text-ink-muted">
                       {u.createdAt.toLocaleDateString()}
                     </td>
-                    <td className="py-3">
-                      <Link
-                        href={`/admin/users/${u.id}`}
-                        className="text-xs font-medium text-brand-500 hover:text-brand-600"
-                      >
-                        View →
-                      </Link>
+                    <td className="py-3 pr-4">
+                      <UserRowActions userId={u.id} />
                     </td>
                   </tr>
                 ))}

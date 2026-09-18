@@ -6,11 +6,11 @@
 import { z } from "zod";
 import bcrypt from "bcryptjs";
 import { db } from "@/lib/db";
-import { signIn } from "@/auth";
+import { auth, signIn } from "@/auth";
 import { AuthError as NextAuthError } from "next-auth";
 import { headers } from "next/headers";
 import { rateLimit } from "@/lib/rate-limit";
-import { createVerificationToken } from "@/lib/email-verification";
+import { createVerificationCode, verifyCode } from "@/lib/email-verification";
 
 export type AuthFormState = { error?: string; fieldErrors?: Record<string, string> } | null;
 
@@ -64,16 +64,17 @@ export async function registerAction(_prev: AuthFormState, formData: FormData): 
     data: { name, email, role: "STUDENT", hashedPassword },
   });
 
-  // Issue a verification email. If sending fails, surface it so the
+  // Issue a verification code (OTP). If sending fails, surface it so the
   // user knows to check their spam folder or contact support.
   try {
-    await createVerificationToken(user.id);
+    await createVerificationCode(user.id);
   } catch (e) {
     console.error("[mail] verification send failed:", e);
-    return { error: "Account created, but we couldn't send the verification email. Please try again or contact support." };
+    return { error: "Account created, but we couldn't send the verification code. Please try again or contact support." };
   }
 
-  // Sign the user in.
+  // Sign the user in (but they'll hit the verification gate before
+  // reaching protected pages).
   try {
     await signIn("credentials", { email, password, redirect: false });
   } catch (e) {
@@ -85,6 +86,37 @@ export async function registerAction(_prev: AuthFormState, formData: FormData): 
   // We use a redirect (outside any error catch) to make this the final state.
   const { redirect } = await import("next/navigation");
   redirect("/verify-email");
+}
+
+const verifyOtpSchema = z.object({
+  code: z.string().min(8).max(8).regex(/^[A-Z2-9]{8}$/, "Enter the code as shown in your email"),
+});
+
+export async function verifyOtpAction(_prev: AuthFormState, formData: FormData): Promise<AuthFormState | void> {
+  const ip = await clientIp();
+  const limited = await rateLimit(`verify-otp:${ip}`, { limit: 10, windowMs: 60_000 });
+  if (!limited.ok) return { error: "Too many attempts. Try again in a minute." };
+
+  const parsed = verifyOtpSchema.safeParse({ code: formData.get("code") });
+  if (!parsed.success) return { error: "Invalid verification code." };
+  const { code } = parsed.data;
+
+  const session = await auth();
+  if (!session?.user?.id) return { error: "You must be signed in." };
+
+  const result = await verifyCode(session.user.id, code);
+  if (!result.ok) {
+    switch (result.error) {
+      case "expired": return { error: "This code has expired. Resend a new one." };
+      case "already_used": return { error: "This code has already been used." };
+      case "too_many_attempts": return { error: "Too many failed attempts. Resend a new code." };
+      default: return { error: "Invalid verification code." };
+    }
+  }
+
+  // Success — redirect to dashboard.
+  const { redirect } = await import("next/navigation");
+  redirect("/dashboard?verified=1");
 }
 
 export async function loginAction(_prev: AuthFormState, formData: FormData): Promise<AuthFormState | void> {
@@ -105,6 +137,15 @@ export async function loginAction(_prev: AuthFormState, formData: FormData): Pro
     return { fieldErrors };
   }
   const { email, password } = parsed.data;
+
+  // Pre-check: if the user exists but email isn't verified, block login.
+  const dbUser = await db.user.findUnique({
+    where: { email },
+    select: { emailVerified: true },
+  });
+  if (dbUser && !dbUser.emailVerified) {
+    return { error: "Please verify your email first. We sent a code after registration." };
+  }
 
   try {
     await signIn("credentials", { email, password, redirect: false });

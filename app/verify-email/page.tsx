@@ -1,39 +1,33 @@
-// /verify-email?token=...&uid=... — consumes the link, redirects.
+// /verify-email — OTP input form. Users enter the code they received
+// via email. Server Action verifies it atomically.
+import { auth } from "@/auth";
 import { redirect } from "next/navigation";
-import { consumeVerificationToken } from "@/lib/email-verification";
 import { Card, PageHeader } from "@/components/ui/Primitives";
-import Link from "next/link";
+import { VerifyOtpForm } from "./VerifyOtpForm";
 
-export const metadata = { title: "Verify email" };
+export const metadata = { title: "Verify email · KnightLead" };
 
-export default async function VerifyEmailPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ token?: string; uid?: string }>;
-}) {
-  const { token, uid } = await searchParams; // Next 16: Promise
-  if (!token || !uid) redirect("/login");
+export default async function VerifyEmailPage() {
+  const session = await auth();
+  if (!session?.user) redirect("/login");
+  if (session.user.emailVerified) redirect("/dashboard");
 
-  const result = await consumeVerificationToken(uid, token);
-  if (result.ok) {
-    redirect("/dashboard?verified=1");
-  }
+  const email = session.user.email ?? "";
 
   return (
-    <main className="grid min-h-dvh place-items-center bg-surface-muted px-4">
-      <Card className="max-w-md text-center">
+    <main className="grid min-h-dvh place-items-center bg-surface-muted px-4 py-12">
+      <Card className="max-w-md w-full text-center">
         <PageHeader
-          title="Verification link expired"
-          description={result.error === "expired"
-            ? "That link is no longer valid. Request a new one below."
-            : "We couldn't verify that link. It may have already been used."}
+          title="Check your email"
+          description="Enter the verification code we sent to confirm your email address."
         />
-        <Link
-          href="/verify-email/resend"
-          className="inline-block rounded-lg bg-brand-500 px-5 py-2.5 text-sm font-semibold text-white hover:bg-brand-600"
-        >
-          Resend verification email
-        </Link>
+        <VerifyOtpForm email={email} />
+        <p className="mt-4 text-sm text-ink-muted">
+          Didn't get the code?{" "}
+          <a href="/verify-email/pending" className="font-semibold text-brand-500 hover:text-brand-600">
+            Resend
+          </a>
+        </p>
       </Card>
     </main>
   );
