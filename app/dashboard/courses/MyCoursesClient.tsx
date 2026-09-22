@@ -11,7 +11,7 @@ import type { IconName } from "@/components/ui/Icon";
 
 export type Enrollment = {
   id: string;
-  status: "ACTIVE" | "COMPLETED" | "DROPPED" | "SUSPENDED";
+  status: "ACTIVE" | "COMPLETED" | "DROPPED" | "SUSPENDED" | "PENDING";
   progress: number;
   enrolledAt: string;
   course: {
@@ -123,7 +123,12 @@ export default function MyCoursesClient({
                 <div className="mb-3 flex items-start justify-between gap-3">
                   <h3 className="line-clamp-2 text-base font-semibold text-ink">{e.course.title}</h3>
                   <Badge
-                    tone={e.status === "COMPLETED" ? "success" : e.status === "ACTIVE" ? "info" : "neutral"}
+                    tone={
+                      e.status === "COMPLETED" ? "success" :
+                      e.status === "ACTIVE" ? "info" :
+                      e.status === "PENDING" ? "warning" :
+                      "neutral"
+                    }
                   >
                     {e.status.toLowerCase()}
                   </Badge>

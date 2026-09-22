@@ -10,6 +10,8 @@ import { Icon } from "@/components/ui/Icon";
 import { SubNav } from "@/components/layout/SubNav";
 import { Breadcrumb } from "@/components/layout/Breadcrumb";
 import { SubmissionForm } from "./SubmissionForm";
+import { AssignmentFileLinks } from "@/components/files/AssignmentFileLinks";
+import { signToken } from "@/lib/storage";
 import type { IconName } from "@/components/ui/Icon";
 
 const LEARN_TABS: { href: string; label: string; icon: IconName }[] = [
@@ -53,11 +55,12 @@ export default async function LessonPage({
   });
   if (!lesson || lesson.module.course.slug !== slug) notFound();
 
-  // Enforce enrollment.
+  // Enforce enrollment. A PENDING enrollment means the student can't
+  // access course content until a manager/admin activates it.
   const enrollment = await db.enrollment.findUnique({
     where: { userId_courseId: { userId, courseId: lesson.module.course.id } },
   });
-  if (!enrollment) notFound();
+  if (!enrollment || enrollment.status === "PENDING") notFound();
 
   const completed = await db.lessonProgress.findUnique({
     where: { userId_lessonId: { userId, lessonId } },
@@ -81,6 +84,14 @@ export default async function LessonPage({
         },
       })
     : null;
+
+  // Build signed download URLs for the assignment's attached files so
+  // the student can view/download them inline.
+  const assignmentFiles = (assignment?.attachments ?? []).map((key) => ({
+    key,
+    name: key.split("/").pop() ?? key,
+    url: `/api/files/download/${encodeURIComponent(key)}?t=${signToken(key)}`,
+  }));
 
   const IconName = lessonIconName(lesson.contentType);
   const I = Icon[IconName];
@@ -160,6 +171,7 @@ export default async function LessonPage({
                 )}
               </div>
               <p className="whitespace-pre-wrap text-sm text-ink">{assignment.prompt}</p>
+              <AssignmentFileLinks files={assignmentFiles} />
               <div className="mt-4 border-t border-line pt-4">
                 <SubmissionForm
                   assignmentId={assignment.id}

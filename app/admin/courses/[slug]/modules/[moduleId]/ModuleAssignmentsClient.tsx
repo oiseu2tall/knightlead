@@ -15,6 +15,7 @@ import { Breadcrumb } from "@/components/layout/Breadcrumb";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { LessonFormFields, type LessonFormData } from "./LessonForm";
 import { AssignmentFormFields, type AssignmentFormData } from "./AssignmentForm";
+import { AssignmentFileLinks } from "@/components/files/AssignmentFileLinks";
 import { deleteAssignment, deleteLesson } from "../../../../catalog/actions";
 
 type Lesson = {
@@ -36,6 +37,7 @@ type Assignment = {
   maxScore: number;
   attachments: string[];
   submissionCount: number;
+  files: Array<{ key: string; name: string; url: string }>;
 };
 
 type Module = {
@@ -227,6 +229,7 @@ export default function ModuleAssignmentsClient({ course, module: mod, role: _ro
                       </>
                     )}
                   </div>
+                  <AssignmentFileLinks files={a.files} />
                 </div>
                 <div className="flex items-center gap-2">
                   <DropdownMenu

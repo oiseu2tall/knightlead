@@ -3,6 +3,7 @@
 import { redirect, notFound } from "next/navigation";
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
+import { signToken } from "@/lib/storage";
 import ModuleAssignmentsClient from "./ModuleAssignmentsClient";
 
 export const metadata = { title: "Module · Catalog" };
@@ -57,6 +58,11 @@ export default async function ModuleDetailPage({
       maxScore: a.maxScore,
       attachments: a.attachments,
       submissionCount: a._count.submissions,
+      files: a.attachments.map((key) => ({
+        key,
+        name: key.split("/").pop() ?? key,
+        url: `/api/files/download/${encodeURIComponent(key)}?t=${signToken(key)}`,
+      })),
       lessonId: l.id,
     })),
   );

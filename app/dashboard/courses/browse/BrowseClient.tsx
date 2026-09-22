@@ -20,7 +20,7 @@ export type BrowseCourse = {
   instructor: { name: string | null; email: string };
   moduleCount: number;
   enrollmentCount: number;
-  enrolled: "ACTIVE" | "COMPLETED" | "DROPPED" | "SUSPENDED" | null;
+  enrolled: "ACTIVE" | "COMPLETED" | "DROPPED" | "SUSPENDED" | "PENDING" | null;
 };
 
 export type LearnTab = {
@@ -108,7 +108,14 @@ export default function BrowseClient({
               <div className="mb-2 flex items-start justify-between gap-2">
                 <h3 className="line-clamp-2 text-base font-semibold text-ink">{c.title}</h3>
                 {c.enrolled && (
-                  <Badge tone={c.enrolled === "COMPLETED" ? "success" : "info"}>
+                  <Badge
+                    tone={
+                      c.enrolled === "COMPLETED" ? "success" :
+                      c.enrolled === "ACTIVE" ? "info" :
+                      c.enrolled === "PENDING" ? "warning" :
+                      "neutral"
+                    }
+                  >
                     {c.enrolled.toLowerCase()}
                   </Badge>
                 )}
@@ -122,12 +129,18 @@ export default function BrowseClient({
               <div className="mt-auto pt-4">
                 {canEnroll ? (
                   c.enrolled ? (
-                    <Link
-                      href={`/dashboard/courses/${c.slug}`}
-                      className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink hover:bg-surface-dim"
-                    >
-                      Continue learning →
-                    </Link>
+                    c.enrolled === "PENDING" ? (
+                      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
+                        Pending approval
+                      </div>
+                    ) : (
+                      <Link
+                        href={`/dashboard/courses/${c.slug}`}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink hover:bg-surface-dim"
+                      >
+                        Continue learning →
+                      </Link>
+                    )
                   ) : (
                     <EnrollButton courseId={c.id} />
                   )

@@ -7,6 +7,7 @@ import { db } from "@/lib/db";
 import { Card, PageHeader, Badge, RoleBadge } from "@/components/ui/Primitives";
 import { RoleSelect } from "./RoleSelect";
 import { UserRowActions } from "./UserRowActions";
+import { SuspendToggle } from "./SuspendToggle";
 import Link from "next/link";
 import type { Prisma } from "@prisma/client";
 
@@ -55,6 +56,7 @@ export default async function AdminUsersPage({
         name: true,
         role: true,
         emailVerified: true,
+        suspended: true,
         createdAt: true,
         _count: { select: { enrollments: true, submissions: true } },
       },
@@ -111,57 +113,68 @@ export default async function AdminUsersPage({
             <table className="w-full text-sm">
               <thead className="text-left text-xs uppercase tracking-wide text-ink-muted">
                 <tr>
-                  <th className="py-2 pr-4 font-medium">User</th>
-                  <th className="py-2 pr-4 font-medium">Role</th>
-                  <th className="py-2 pr-4 font-medium">Verified</th>
-                  <th className="py-2 pr-4 font-medium">Activity</th>
-                  <th className="py-2 pr-4 font-medium">Joined</th>
-                  <th className="py-2 font-medium">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-line">
-                {users.map((u) => (
-                  <tr key={u.id} className="text-ink">
-                    <td className="py-3 pr-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-500 text-xs font-semibold text-white">
-                          {(u.name?.[0] ?? u.email[0]).toUpperCase()}
-                        </div>
-                        <div className="min-w-0">
-                          <Link
-                            href={`/admin/users/${u.id}`}
-                            className="block truncate font-medium text-ink hover:text-brand-600"
-                          >
-                            {u.name ?? "—"}
-                          </Link>
-                          <p className="truncate text-xs text-ink-muted">{u.email}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3 pr-4">
-                      <div className="mb-1.5">
-                        <RoleBadge role={u.role} size="sm" />
-                      </div>
-                      <RoleSelect userId={u.id} currentRole={u.role} />
-                    </td>
-                    <td className="py-3 pr-4">
-                      {u.emailVerified ? (
-                        <Badge tone="success">verified</Badge>
-                      ) : (
-                        <Badge tone="warning">pending</Badge>
-                      )}
-                    </td>
-                    <td className="py-3 pr-4 text-xs text-ink-muted">
-                      {u._count.enrollments} courses · {u._count.submissions} subs
-                    </td>
-                    <td className="py-3 pr-4 text-xs text-ink-muted">
-                      {u.createdAt.toLocaleDateString()}
-                    </td>
-                    <td className="py-3 pr-4">
-                      <UserRowActions userId={u.id} />
-                    </td>
-                  </tr>
-                ))}
+<th className="py-2 pr-4 font-medium">User</th>
+                   <th className="py-2 pr-4 font-medium">Role</th>
+                   <th className="py-2 pr-4 font-medium">Verified</th>
+                   <th className="py-2 pr-4 font-medium">Account</th>
+                   <th className="py-2 pr-4 font-medium">Activity</th>
+                   <th className="py-2 pr-4 font-medium">Joined</th>
+                   <th className="py-2 font-medium">Actions</th>
+                 </tr>
+               </thead>
+               <tbody className="divide-y divide-line">
+                 {users.map((u) => (
+                   <tr key={u.id} className={u.suspended ? "bg-red-50/50 dark:bg-red-950/20" : "text-ink"}>
+                     <td className="py-3 pr-4">
+                       <div className="flex items-center gap-3">
+                         <div className="flex h-8 w-8 items-center justify-center rounded-full bg-brand-500 text-xs font-semibold text-white">
+                           {(u.name?.[0] ?? u.email[0]).toUpperCase()}
+                         </div>
+                         <div className="min-w-0">
+                           <Link
+                             href={`/admin/users/${u.id}`}
+                             className="block truncate font-medium text-ink hover:text-brand-600"
+                           >
+                             {u.name ?? "—"}
+                           </Link>
+                           <p className="truncate text-xs text-ink-muted">{u.email}</p>
+                         </div>
+                       </div>
+                     </td>
+                     <td className="py-3 pr-4">
+                       <div className="mb-1.5">
+                         <RoleBadge role={u.role} size="sm" />
+                       </div>
+                       <RoleSelect userId={u.id} currentRole={u.role} />
+                     </td>
+                     <td className="py-3 pr-4">
+                       {u.emailVerified ? (
+                         <Badge tone="success">verified</Badge>
+                       ) : (
+                         <Badge tone="warning">pending</Badge>
+                       )}
+                     </td>
+                     <td className="py-3 pr-4">
+                       {u.suspended ? (
+                         <Badge tone="danger">suspended</Badge>
+                       ) : (
+                         <Badge tone="success">active</Badge>
+                       )}
+                     </td>
+                     <td className="py-3 pr-4 text-xs text-ink-muted">
+                       {u._count.enrollments} courses · {u._count.submissions} subs
+                     </td>
+                     <td className="py-3 pr-4 text-xs text-ink-muted">
+                       {u.createdAt.toLocaleDateString()}
+                     </td>
+                     <td className="py-3 pr-4">
+                       <div className="flex flex-col items-end gap-1.5">
+                         <SuspendToggle userId={u.id} suspended={u.suspended} />
+                         <UserRowActions userId={u.id} />
+                       </div>
+                     </td>
+                   </tr>
+                 ))}
               </tbody>
             </table>
           </div>

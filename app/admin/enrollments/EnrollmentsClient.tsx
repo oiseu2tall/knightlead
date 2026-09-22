@@ -3,7 +3,7 @@
 // /admin/enrollments — staff-initiated enrollment tool, with a
 // modal-driven "New enrollment" form. MANAGER + ADMIN.
 
-import { useMemo, useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
@@ -15,6 +15,7 @@ import { LongList } from "@/components/ui/LongList";
 import { SubNav } from "@/components/layout/SubNav";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { EnrollStudentForm } from "./EnrollStudentForm";
+import { approveEnrollment } from "../catalog/actions";
 
 type Student = { id: string; name: string | null; email: string };
 type Course = { id: string; title: string; slug: string; isPublished: boolean };
@@ -24,7 +25,7 @@ type RecentEnrollment = {
   user: { id: string; name: string | null; email: string };
   course: { id: string; title: string; slug: string };
   cohort: { id: string; name: string } | null;
-  status: "ACTIVE" | "COMPLETED" | "DROPPED" | "SUSPENDED";
+  status: "ACTIVE" | "COMPLETED" | "DROPPED" | "SUSPENDED" | "PENDING";
   enrolledAt: string;
 };
 
@@ -37,6 +38,7 @@ type Props = {
 };
 
 const STATUS_TONE = {
+  PENDING: "warning",
   ACTIVE: "info",
   COMPLETED: "success",
   DROPPED: "neutral",
@@ -47,6 +49,10 @@ export default function EnrollmentsClient({ students, courses, cohorts, recent, 
   const router = useRouter();
   const [createOpen, setCreateOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
+
+  const pendingCount = recent.filter((e) => e.status === "PENDING").length;
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -92,7 +98,11 @@ export default function EnrollmentsClient({ students, courses, cohorts, recent, 
       <PageHeader
         eyebrow="Manage · Enrollments"
         title="Enrollments"
-        description="Enroll a student in a course. Optionally tag with a cohort."
+        description={
+          pendingCount > 0
+            ? `${pendingCount} ${pendingCount === 1 ? "enrollment" : "enrollments"} pending approval`
+            : "Enroll a student in a course. Optionally tag with a cohort."
+        }
         accent="brand"
       />
 
@@ -136,7 +146,8 @@ export default function EnrollmentsClient({ students, courses, cohorts, recent, 
                   <th className="py-2 pr-4 font-medium">Course</th>
                   <th className="py-2 pr-4 font-medium">Cohort</th>
                   <th className="py-2 pr-4 font-medium">Status</th>
-                  <th className="py-2 font-medium">Enrolled</th>
+                  <th className="py-2 pr-4 font-medium">Enrolled</th>
+                  <th className="py-2 font-medium">Actions</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
@@ -178,8 +189,31 @@ export default function EnrollmentsClient({ students, courses, cohorts, recent, 
                       <td className="py-3 pr-4">
                         <Badge tone={STATUS_TONE[e.status]}>{e.status.toLowerCase()}</Badge>
                       </td>
-                      <td className="py-3 text-xs text-ink-muted">
+                      <td className="py-3 pr-4 text-xs text-ink-muted">
                         {new Date(e.enrolledAt).toLocaleDateString()}
+                      </td>
+                      <td className="py-3 text-right">
+                        {e.status === "PENDING" ? (
+                          <button
+                            type="button"
+                            disabled={pendingId === e.id}
+                            onClick={() => {
+                              setPendingId(e.id);
+                              startTransition(async () => {
+                                const fd = new FormData();
+                                fd.set("enrollmentId", e.id);
+                                const res = await approveEnrollment(fd);
+                                if (!res.ok) { alert(res.error); setPendingId(null); return; }
+                                router.refresh();
+                              });
+                            }}
+                            className="inline-flex items-center gap-1 rounded-md bg-brand-500 px-2.5 py-1 text-xs font-semibold text-white hover:bg-brand-600 disabled:opacity-50"
+                          >
+                            {pendingId === e.id ? "Approving…" : "Approve"}
+                          </button>
+                        ) : (
+                          <span className="text-xs text-ink-muted">—</span>
+                        )}
                       </td>
                     </tr>
                   )}

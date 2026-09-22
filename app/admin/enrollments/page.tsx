@@ -27,7 +27,11 @@ export default async function EnrollmentsPage() {
       orderBy: { startDate: "desc" },
       select: { id: true, name: true, startDate: true },
     }),
+    // Include PENDING self-enrollments so managers/admins can
+    // approve them. Staff-enrolled students are created ACTIVE by
+    // default; only self-enrollments land in PENDING.
     db.enrollment.findMany({
+      where: { status: { in: ["PENDING", "ACTIVE", "COMPLETED", "DROPPED", "SUSPENDED"] } },
       orderBy: { enrolledAt: "desc" },
       take: 50,
       include: {

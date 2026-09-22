@@ -7,6 +7,7 @@ A full-stack Learning Management System for cohort-based bootcamps. Built on **N
 ## Features
 
 - 👤 **Auth & roles** — credentials login with bcrypt(12), JWT sessions, role-based access (`STUDENT` / `INSTRUCTOR` / `MANAGER` / `ADMIN`), self-healing JWT that picks up DB-side role/email-verification changes
+- 🔒 **Account suspension** — ADMIN can suspend any user account (except their own). A suspended user is rejected at login and, if already logged in, is redirected to `/suspended` on the next request. The JWT self-heal callback reflects DB-side suspension so no session-expiry wait is needed.
 - 🧭 **Global sidebar on every authed page** — a single `<AuthedShell>` wrapper renders the role-aware drawer + sticky app bar on every page under `/dashboard/**`, `/admin/**`, and `/instructor/**`
 - 📚 **Courses & lessons** — modules, ordered lessons, per-user completion tracking with auto-recomputed progress (`LessonProgress` model)
 - 📝 **Polished assignment-submission flow** — pre-fills from existing submissions, shows grade + feedback inline, character counter, Cmd/Ctrl+Enter shortcut, drag-and-drop multi-file upload, 5-file cap
@@ -14,7 +15,8 @@ A full-stack Learning Management System for cohort-based bootcamps. Built on **N
 - 🧑‍🤝‍🧑 **Instructor cohorts** — read-only view of cohorts connected to the instructor's courses
 - 🛠️ **Catalog management** — MANAGER + ADMIN can create/edit cohorts, courses, and modules via modal-driven forms; attach PDF/PowerPoint files to modules
 - 🏷️ **Role filter chips + live search** — every list page (cohorts, courses, enrollments, users) has a debounced search input and status filter chips
-- 🔒 **Admin panel** — user search, role filter chips, pagination, inline role change (with audit log), per-user detail with enrollments / submissions / audit timeline. ADMIN only.
+- 🔐 **Enrollment approval** — when a student self-enrolls, the enrollment starts in `PENDING` and they can't access modules, lessons, or assignments until a manager or admin activates it. Staff-enrolled students are created `ACTIVE` by default. MANAGER + ADMIN can approve pending enrollments from the Enrollments page.
+- 🔒 **Admin panel** — user search, role filter chips, pagination, inline role change (with audit log), per-user detail with enrollments / submissions / audit timeline, suspend/activate toggle. ADMIN only.
 - 📎 **Local file storage** — HMAC-signed token URLs, MIME allowlist, 50MB cap, path-traversal guards, S3-shaped interface for easy swap
 - ✉️ **Email verification** — OTP-style (8-char code, no prefix), Nodemailer via Gmail SMTP, fallback chain (Gmail → Ethereal → console), auto-redirect to `/verify-email/pending` until verified
 - 🛡️ **Security** — proxy-based route gating + server-side re-checks in every layout/action, Zod validation everywhere, per-IP and per-user rate limits (Postgres-backed), `X-Content-Type-Options: nosniff`, HTTP-only cookies
@@ -40,9 +42,12 @@ The four roles have **explicit, non-hierarchical** capabilities — ADMIN does *
 | Manage cohorts (create / edit / delete)     |    ❌   |     ❌     |    ✅   |  ✅   |
 | Manage courses (create / edit / publish)    |    ❌   |     ❌     |    ✅   |  ✅   |
 | Manage modules (create / edit / delete)     |    ❌   |     ❌     |    ✅   |  ✅   |
+| Approve / activate pending enrollments      |    ❌   |     ❌     |    ✅   |  ✅   |
 | User management (search, role change)       |    ❌   |     ❌     |    ❌   |  ✅   |
+| Suspend / activate user accounts            |    ❌   |     ❌     |    ❌   |  ✅   |
 | Promote / demote other users                |    ❌   |     ❌     |    ❌   |  ✅   |
 | Self-demote                                 |    —    |     —      |    —    |  ❌   |
+| Self-suspend                                |    —    |     —      |    —    |  ❌   |
 
 ¹ Staff accounts don't take courses, so the "My courses" page is empty by design — the catalog at `/dashboard/courses/browse` is shown in read-only mode instead.
 ² Admins can grade any submission; instructors are scoped to the courses they teach.

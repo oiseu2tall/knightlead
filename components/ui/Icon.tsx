@@ -108,6 +108,18 @@ export const Icon = {
       <circle cx="19" cy="12" r="1.5" fill="currentColor" />
     </svg>
   ),
+  Ban: (p: P) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className={base} {...p}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="m15 9-6 6M9 9l6 6" strokeLinecap="round" />
+    </svg>
+  ),
+  Clock: (p: P) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className={base} {...p}>
+      <circle cx="12" cy="12" r="10" />
+      <path d="M12 7v5l3 2" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
   ArrowLeft: (p: P) => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className={base} {...p}>
       <path d="M19 12H5M12 19l-7-7 7-7" strokeLinecap="round" strokeLinejoin="round" />

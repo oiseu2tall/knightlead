@@ -27,6 +27,7 @@ enum Role {
 }
 
 enum EnrollmentStatus {
+  PENDING
   ACTIVE
   COMPLETED
   DROPPED
@@ -64,6 +65,7 @@ model User {
   image          String?
   hashedPassword String? // null for OAuth-only accounts
   role           Role     @default(STUDENT)
+  suspended      Boolean  @default(false) // account lockout — admin can suspend/activate
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
 

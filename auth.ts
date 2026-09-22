@@ -16,12 +16,14 @@ declare module "next-auth" {
       id: string;
       role: Role;
       emailVerified: Date | null;
+      suspended: boolean;
     } & DefaultSession["user"];
   }
 
   interface User {
     role?: Role;
     emailVerified?: Date | null;
+    suspended?: boolean;
   }
 }
 
@@ -30,6 +32,7 @@ declare module "@auth/core/jwt" {
     role?: Role;
     uid?: string;
     ev?: number | null; // emailVerified epoch ms
+    susp?: boolean; // suspended flag, self-healed from DB
   }
 }
 
@@ -62,17 +65,18 @@ export const {
         if (!parsed.success) return null;
 
         const { email, password } = parsed.data;
-        const user = await db.user.findUnique({
-          where: { email: email.toLowerCase() },
-          select: {
-            id: true,
-            email: true,
-            name: true,
-            image: true,
-            hashedPassword: true,
-            role: true,
-          },
-        });
+const user = await db.user.findUnique({
+        where: { email: email.toLowerCase() },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          image: true,
+          hashedPassword: true,
+          role: true,
+          suspended: true,
+        },
+      });
 
         // Constant-time bcrypt compare; equal time whether or not the
         // user exists (mitigates user-enumeration via timing).
@@ -82,7 +86,10 @@ export const {
           password,
           user?.hashedPassword ?? dummy,
         );
-        if (!user || !user.hashedPassword || !ok) return null;
+        // A suspended user cannot sign in — reject at the credential
+        // check so the login page shows the generic "invalid" message
+        // rather than revealing that the account exists.
+        if (!user || !user.hashedPassword || !ok || user.suspended) return null;
 
         return {
           id: user.id,
@@ -102,6 +109,7 @@ export const {
         token.ev = (user as { emailVerified?: Date | null }).emailVerified
           ? (user as { emailVerified: Date }).emailVerified.getTime()
           : null;
+        token.susp = (user as { suspended?: boolean }).suspended ?? false;
       }
       // Self-heal: if the token predates an email verification (e.g. the
       // user logged in before being verified, or the seed set the column
@@ -112,7 +120,7 @@ export const {
         const { db } = await import("@/lib/db");
         const u = await db.user.findUnique({
           where: { id: token.uid },
-          select: { role: true, emailVerified: true },
+          select: { role: true, emailVerified: true, suspended: true },
         });
         if (u) {
           const dbEv = u.emailVerified?.getTime() ?? null;
@@ -122,6 +130,9 @@ export const {
           }
           // Always trust the DB role over the (possibly stale) token role.
           if (u.role) token.role = u.role;
+          // Reflect DB-side suspension so an admin can lock out an
+          // already-logged-in user without waiting for session expiry.
+          token.susp = u.suspended;
         }
       }
       return token;
@@ -139,9 +150,10 @@ export const {
 
       // Public routes — always allow.
       const PUBLIC = [
-        "/", "/login", "/register", "/forgot-password",
+        "/", "/login", "/register",
         "/verify-email",        // consumes the link
         "/forbidden",
+        "/suspended",           // account lockout notice
         "/api/auth",
       ];
       if (PUBLIC.some((p) => pathname === p || pathname.startsWith(p + "/"))) {

@@ -102,6 +102,22 @@ export function canManageUsers(role: Role | undefined | null): boolean {
 }
 
 /**
+ * Suspend or activate user accounts. ADMIN only.
+ */
+export function canSuspendUsers(role: Role | undefined | null): boolean {
+  return role === "ADMIN";
+}
+
+/**
+ * Approve / activate pending self-enrollments. MANAGER and ADMIN.
+ * Staff-enrolled students are created ACTIVE by default, so this
+ * capability only matters for the PENDING self-enroll flow.
+ */
+export function canApproveEnrollments(role: Role | undefined | null): boolean {
+  return role === "MANAGER" || role === "ADMIN";
+}
+
+/**
  * Grading submissions. INSTRUCTOR (their own courses) and ADMIN.
  */
 export function canGrade(role: Role | undefined | null): boolean {

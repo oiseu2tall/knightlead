@@ -1,14 +1,21 @@
 // /admin/users/[id] — drill-down view of a single user.
 import { db } from "@/lib/db";
-import { notFound } from "next/navigation";
+import { notFound, redirect } from "next/navigation";
+import { auth } from "@/auth";
 import { Card, PageHeader, Badge, ProgressBar, RoleBadge } from "@/components/ui/Primitives";
 import Link from "next/link";
+import { SuspendToggle } from "../SuspendToggle";
 
 export default async function AdminUserDetail({
   params,
 }: {
   params: Promise<{ id: string }>;
 }) {
+  // Re-check: this subroute is ADMIN-only.
+  const session = await auth();
+  if (!session?.user?.id) redirect("/login");
+  if (session.user.role !== "ADMIN") redirect("/forbidden");
+
   const { id } = await params; // Next 16: Promise
   const user = await db.user.findUnique({
     where: { id },
@@ -36,16 +43,20 @@ export default async function AdminUserDetail({
           <span className="flex flex-wrap items-center gap-2">
             <span>{user.email}</span>
             <RoleBadge role={user.role} size="sm" />
+            {user.suspended ? <Badge tone="danger">suspended</Badge> : <Badge tone="success">active</Badge>}
           </span>
         }
         accent="brand"
         action={
-          <Link
-            href="/admin/users"
-            className="text-sm font-medium text-brand-500 hover:text-brand-600"
-          >
-            ← Back to users
-          </Link>
+          <div className="flex items-center gap-2">
+            <SuspendToggle userId={user.id} suspended={user.suspended} />
+            <Link
+              href="/admin/users"
+              className="text-sm font-medium text-brand-500 hover:text-brand-600"
+            >
+              ← Back to users
+            </Link>
+          </div>
         }
       />
 
@@ -60,6 +71,12 @@ export default async function AdminUserDetail({
               value={user.emailVerified
                 ? <Badge tone="success">verified</Badge>
                 : <Badge tone="warning">pending</Badge>}
+            />
+            <Row
+              label="Status"
+              value={user.suspended
+                ? <Badge tone="danger">suspended</Badge>
+                : <Badge tone="success">active</Badge>}
             />
             <Row label="Joined" value={user.createdAt.toLocaleString()} />
           </dl>

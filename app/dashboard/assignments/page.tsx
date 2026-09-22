@@ -11,9 +11,11 @@ export default async function AssignmentsPage() {
   const session = await auth();
   const userId = session!.user.id;
 
-  // Pull every assignment for enrolled courses, with the user's submission.
+  // Pull every assignment for ACTIVE enrollments only. PENDING
+  // enrollments haven't been approved yet, so their courses don't
+  // count for the assignments list.
   const enrollments = await db.enrollment.findMany({
-    where: { userId },
+    where: { userId, status: { not: "PENDING" } },
     select: {
       course: {
         select: {

@@ -15,6 +15,15 @@ export default auth((req) => {
   const session = req.auth;
   const role = session?.user?.role;
 
+  // A suspended user cannot access the LMS at all — redirect them to
+  // the suspended page (which is public so it renders without a
+  // session). The Credentials provider also rejects them at login.
+  if (session?.user?.suspended) {
+    const url = nextUrl.clone();
+    url.pathname = "/suspended";
+    return NextResponse.rewrite(url);
+  }
+
   // The `authorized` callback already handled the "is logged in" check.
   // Here we add role-based gating for protected sections.
   const isAdminRoute = nextUrl.pathname.startsWith("/admin");

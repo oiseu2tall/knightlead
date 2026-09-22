@@ -370,6 +370,64 @@ export async function goTo(path: string) {
 }
 
 // ---------------------------------------------------------------------------
+// Enrollment approval / activation
+// ---------------------------------------------------------------------------
+
+export type ApproveEnrollResult =
+  | { ok: true }
+  | { ok: false; error: string };
+
+const approveEnrollSchema = z.object({
+  enrollmentId: z.string().min(1).max(64),
+});
+
+/**
+ * Activate a PENDING self-enrollment so the student can access course
+ * content. MANAGER + ADMIN. Idempotent: an already-ACTIVE enrollment
+ * is a no-op success.
+ *
+ * Staff-enrolled students are created ACTIVE by default — this action
+ * only matters for self-enrollments that landed in PENDING.
+ */
+export async function approveEnrollment(formData: FormData): Promise<ApproveEnrollResult> {
+  const actor = await requireRole("MANAGER", "ADMIN");
+  const ip = await clientIp();
+  const limited = await rateLimit(`enroll-approve:${actor.id}:${ip}`, {
+    limit: 60, windowMs: 60_000,
+  });
+  if (!limited.ok) return { ok: false, error: "Too many approvals — slow down." };
+
+  const parsed = approveEnrollSchema.safeParse({ enrollmentId: formData.get("enrollmentId") });
+  if (!parsed.success) return { ok: false, error: "Missing enrollment id" };
+  const { enrollmentId } = parsed.data;
+
+  const enrollment = await db.enrollment.findUnique({
+    where: { id: enrollmentId },
+    include: { user: { select: { email: true } }, course: { select: { title: true, slug: true } } },
+  });
+  if (!enrollment) return { ok: false, error: "Enrollment not found" };
+  if (enrollment.status !== "PENDING") return { ok: true }; // idempotent
+
+  await db.enrollment.update({ where: { id: enrollmentId }, data: { status: "ACTIVE" } });
+  await db.auditLog.create({
+    data: {
+      userId: actor.id,
+      action: "APPROVE_ENROLLMENT",
+      resource: `enrollment:${enrollmentId}`,
+      metadata: {
+        student: enrollment.user.email,
+        course: enrollment.course.title,
+      },
+    },
+  });
+
+  revalidatePath("/admin/enrollments");
+  revalidatePath("/dashboard/courses");
+  revalidatePath(`/dashboard/courses/${enrollment.course.slug}`);
+  return { ok: true };
+}
+
+// ---------------------------------------------------------------------------
 // Staff-initiated enrollment
 // ---------------------------------------------------------------------------
 

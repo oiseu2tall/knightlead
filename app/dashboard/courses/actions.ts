@@ -144,8 +144,12 @@ export async function enrollInCourse(formData: FormData): Promise<EnrollResult> 
     return { ok: true };
   }
 
+  // Self-enrollments start in PENDING state: the student can't access
+  // course content until a manager or admin approves/activates the
+  // enrollment. This is a deliberate product decision — see the
+  // capability matrix in README.md.
   await db.enrollment.create({
-    data: { userId: user.id, courseId, status: "ACTIVE", progress: 0 },
+    data: { userId: user.id, courseId, status: "PENDING", progress: 0 },
   });
   await db.auditLog.create({
     data: { userId: user.id, action: "ENROLL_COURSE", resource: `course:${courseId}` },
