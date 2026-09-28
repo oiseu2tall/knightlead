@@ -12,7 +12,6 @@ export type LessonFormData = {
   title?: string;
   contentType?: string;
   content?: string;
-  videoUrl?: string;
   durationMin?: number;
   order?: number;
   isFree?: boolean;
@@ -35,7 +34,6 @@ export function LessonFormFields({
   const [title, setTitle] = useState(initial?.title ?? "");
   const [contentType, setContentType] = useState(initial?.contentType ?? "ARTICLE");
   const [content, setContent] = useState(initial?.content ?? "");
-  const [videoUrl, setVideoUrl] = useState(initial?.videoUrl ?? "");
   const [durationMin, setDurationMin] = useState(initial?.durationMin ?? "");
   const [order, setOrder] = useState(initial?.order ?? nextOrder);
   const [isFree, setIsFree] = useState(initial?.isFree ?? false);
@@ -48,7 +46,6 @@ export function LessonFormFields({
     fd.set("title", title);
     fd.set("contentType", contentType);
     fd.set("content", content);
-    fd.set("videoUrl", videoUrl);
     fd.set("durationMin", String(durationMin));
     fd.set("order", String(order));
     fd.set("isFree", isFree ? "on" : "");
@@ -100,16 +97,7 @@ export function LessonFormFields({
           maxLength={20000}
         />
       </Field>
-      <Field label="Video URL" name="videoUrl" hint="Optional. HTTPS link to a video file or stream.">
-        <Input
-          type="url"
-          name="videoUrl"
-          value={videoUrl}
-          onChange={(e) => setVideoUrl(e.target.value)}
-          placeholder="https://…"
-        />
-      </Field>
-      <Field label="Duration (minutes)" name="durationMin" hint="Optional.">
+      <Field label="Duration (minutes)" name="durationMin" hint="Optional. Total runtime across this lesson's videos.">
         <Input
           type="number"
           name="durationMin"
@@ -162,7 +150,7 @@ export function DeleteLessonButton({ id, title }: { id: string; title: string })
         className="text-red-600 hover:bg-red-50 dark:hover:bg-red-500/10"
         disabled={pending}
         onClick={() => {
-          if (!confirm(`Delete lesson "${title}"? Any assignments inside it will also be removed.`)) return;
+          if (!confirm(`Delete lesson "${title}"? Its videos and any cohort schedules that reference it will also be removed.`)) return;
           setError(null);
           const fd = new FormData();
           fd.set("id", id);

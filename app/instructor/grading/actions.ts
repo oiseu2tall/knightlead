@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireRole } from "@/lib/auth-guard";
+import { recomputeProgress } from "@/lib/curriculum";
 import { rateLimit } from "@/lib/rate-limit";
 import { headers } from "next/headers";
 
@@ -42,12 +43,12 @@ export async function gradeSubmission(formData: FormData): Promise<GradeResult> 
       assignment: {
         select: {
           id: true,
-          lessonId: true,
           maxScore: true,
-          lesson: {
+          module: {
             select: {
               id: true,
-              module: { select: { courseId: true, course: { select: { slug: true, instructorId: true } } } },
+              courseId: true,
+              course: { select: { slug: true, instructorId: true } },
             },
           },
         },
@@ -59,7 +60,7 @@ export async function gradeSubmission(formData: FormData): Promise<GradeResult> 
   // Instructors can only grade submissions for courses they own; admins can grade any.
   if (
     grader.role !== "ADMIN" &&
-    sub.assignment.lesson.module.course.instructorId !== grader.id
+    sub.assignment.module.course.instructorId !== grader.id
   ) {
     return { ok: false, error: "You don't teach that course" };
   }
@@ -78,47 +79,38 @@ export async function gradeSubmission(formData: FormData): Promise<GradeResult> 
     },
   });
 
-  // Auto-complete the lesson when the assignment is graded.
-  const lessonId = sub.assignment.lessonId;
-  const courseId = sub.assignment.lesson.module.courseId;
-  const courseSlug = sub.assignment.lesson.module.course.slug;
+  // Grading a module's assignment means the student did that module's
+  // work, so the module's lessons count as complete. Assessments are
+  // module-level, so there is no single lesson to tick here — the whole
+  // module is the unit that was evidenced.
+  const moduleId = sub.assignment.module.id;
+  const courseId = sub.assignment.module.courseId;
+  const courseSlug = sub.assignment.module.course.slug;
   const userId = sub.userId;
 
-  try {
-    await db.lessonProgress.create({ data: { userId, lessonId } });
-  } catch (e: unknown) {
-    if (!(e as { code?: string }).code || (e as { code?: string }).code !== "P2002") throw e;
+  const moduleLessons = await db.lesson.findMany({
+    where: { moduleId },
+    select: { id: true },
+  });
+  if (moduleLessons.length > 0) {
+    // Upsert rather than create-and-catch: a partially completed module
+    // already has rows for some lessons.
+    await db.lessonProgress.createMany({
+      data: moduleLessons.map((l) => ({ userId, lessonId: l.id })),
+      skipDuplicates: true,
+    });
   }
 
-  const lessonIds = await db.lesson.findMany({
-    where: { module: { courseId } },
-    select: { id: true },
+  // Write progress back to the student's seat. A student can hold several
+  // seats in one course (one per cohort), and each seat is scored against
+  // its own cohort's curriculum, so update every live seat rather than
+  // guessing which one this submission belongs to.
+  const seats = await db.enrollment.findMany({
+    where: { userId, courseId, status: { in: ["ACTIVE", "COMPLETED"] } },
+    select: { id: true, cohortId: true },
   });
-  const lessonIdList = lessonIds.map((l) => l.id);
-
-  const [completed, total] = await Promise.all([
-    lessonIdList.length
-      ? db.lessonProgress.count({
-          where: { userId, lessonId: { in: lessonIdList } },
-        })
-      : 0,
-    lessonIdList.length,
-  ]);
-  const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
-
-  const enrollment = await db.enrollment.findUnique({
-    where: { userId_courseId: { userId, courseId } },
-    select: { id: true },
-  });
-  if (enrollment) {
-    await db.enrollment.update({
-      where: { id: enrollment.id },
-      data: {
-        progress: percent,
-        status: percent === 100 ? "COMPLETED" : "ACTIVE",
-        completedAt: percent === 100 ? new Date() : null,
-      },
-    });
+  for (const seat of seats) {
+    await recomputeProgress(userId, courseId, seat.cohortId);
   }
 
   // Audit log entry.
@@ -133,7 +125,11 @@ export async function gradeSubmission(formData: FormData): Promise<GradeResult> 
 
   revalidatePath("/instructor/grading");
   revalidatePath(`/dashboard/courses/${courseSlug}`);
-  revalidatePath(`/dashboard/courses/${courseSlug}/lessons/${lessonId}`);
+  // The module's lessons are now marked complete, so the course page and
+  // each lesson page in the cohort plan need to re-render.
+  for (const l of moduleLessons) {
+    revalidatePath(`/dashboard/courses/${courseSlug}/lessons/${l.id}`);
+  }
   revalidatePath("/dashboard");
   const assignmentId = sub.assignment.id;
   revalidatePath(`/instructor/grading?assignmentId=${assignmentId}`);
@@ -151,7 +147,7 @@ export async function returnSubmission(formData: FormData): Promise<GradeResult>
       assignment: {
         select: {
           id: true,
-          lesson: { select: { module: { select: { course: { select: { slug: true } } } } } },
+          module: { select: { course: { select: { slug: true } } } },
         },
       },
     },
@@ -162,7 +158,7 @@ export async function returnSubmission(formData: FormData): Promise<GradeResult>
     data: { status: "RETURNED", gradedById: grader.id, gradedAt: new Date() },
   });
   revalidatePath("/instructor/grading");
-  revalidatePath(`/dashboard/courses/${sub?.assignment.lesson.module.course.slug ?? ""}`);
+  revalidatePath(`/dashboard/courses/${sub?.assignment.module.course.slug ?? ""}`);
   const assignmentId = sub?.assignment.id;
   if (assignmentId) revalidatePath(`/instructor/grading?assignmentId=${assignmentId}`);
   return { ok: true, status: "RETURNED" };

@@ -9,7 +9,7 @@ import { Card, PageHeader, Badge } from "@/components/ui/Primitives";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { LearnTabs, SearchControls } from "../../CoursesTabsClient";
 import { useMemo, useState } from "react";
-import { EnrollButton } from "./EnrollButton";
+import { EnrollButton, type CohortOption } from "./EnrollButton";
 import { Icon, type IconName } from "@/components/ui/Icon";
 
 export type BrowseCourse = {
@@ -20,7 +20,11 @@ export type BrowseCourse = {
   instructor: { name: string | null; email: string };
   moduleCount: number;
   enrollmentCount: number;
+  cohortCount: number;
+  openCohortCount: number;
+  /** Strongest status among the viewer's seats in this course. */
   enrolled: "ACTIVE" | "COMPLETED" | "DROPPED" | "SUSPENDED" | "PENDING" | null;
+  cohorts: CohortOption[];
 };
 
 export type LearnTab = {
@@ -123,27 +127,30 @@ export default function BrowseClient({
               <p className="text-xs text-ink-muted">
                 {c.instructor.name ?? c.instructor.email} · {c.moduleCount} modules · {c.enrollmentCount} enrolled
               </p>
+              <p className="mt-0.5 text-xs text-ink-muted">
+                {c.cohortCount === 0
+                  ? "No intakes scheduled"
+                  : `${c.openCohortCount} of ${c.cohortCount} intake${c.cohortCount === 1 ? "" : "s"} open for enrollment`}
+              </p>
               {c.description && (
                 <p className="mt-2 line-clamp-3 text-sm text-ink-muted">{c.description}</p>
               )}
               <div className="mt-auto pt-4">
                 {canEnroll ? (
-                  c.enrolled ? (
-                    c.enrolled === "PENDING" ? (
-                      <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300">
-                        Pending approval
-                      </div>
-                    ) : (
+                  <div className="flex flex-col gap-2">
+                    {c.enrolled === "ACTIVE" || c.enrolled === "COMPLETED" ? (
                       <Link
                         href={`/dashboard/courses/${c.slug}`}
                         className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink hover:bg-surface-dim"
                       >
                         Continue learning →
                       </Link>
-                    )
-                  ) : (
-                    <EnrollButton courseId={c.id} />
-                  )
+                    ) : null}
+                    {/* Always offered: a student already in one intake can
+                        still request a seat in another, which is the point
+                        of courses having many cohorts. */}
+                    <EnrollButton cohorts={c.cohorts} />
+                  </div>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-xs text-ink-muted">
                     <Icon.Group className="h-4 w-4" />

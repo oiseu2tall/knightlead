@@ -73,6 +73,7 @@ model User {
   accounts          Account[]
   sessions          Session[]
   enrollments       Enrollment[]
+  approvedEnrollments Enrollment[] @relation("EnrollmentApprover")
   taughtCourses     Course[]      @relation("CourseInstructor")
   managedCohorts    Cohort[]      @relation("CohortManager")
   managedCourses    Course[]      @relation("CourseManager")
@@ -138,25 +139,43 @@ model EmailVerification {
 
 // ---------- Curriculum ----------
 
+// A cohort is a time-boxed intake for ONE course. A course always has
+// many cohorts (one per intake). Students enroll into a cohort, never
+// directly into a course — the cohort is what gates access to the
+// course's modules, lessons, and assessments.
+//
+// A cohort also carries its own delivery plan: `lessons` and `modules`
+// below say what THIS intake teaches, in what order. Both are optional —
+// a cohort with an empty plan simply teaches the whole course in the
+// course's own order.
 model Cohort {
-  id          String   @id @default(cuid())
-  name        String
-  slug        String   @unique
-  startDate   DateTime
-  endDate     DateTime
-  description String?  @db.Text
-  // Optional: a MANAGER who owns/oversees the cohort. Managers can
-  // also see cohorts with a null managerId (they manage the catalog),
-  // but we record ownership for the audit trail and future per-cohort
-  // scoping.
-  managerId   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String @id @default(cuid())
+  courseId  String
+  name      String
+  slug      String @unique
+  startDate DateTime
+  endDate   DateTime
+  description String? @db.Text
+  // Optional: a MANAGER who owns/oversees the cohort.
+  managerId String?
+  // Whether students may self-enroll into this cohort. Staff can always
+  // enroll a student manually regardless of this flag.
+  isOpen     Boolean @default(true)
+  // Optional seat cap. When set, the cohort accepts no further
+  // enrollments (self or staff) once it is full.
+  capacity   Int?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
+  course        Course         @relation(fields: [courseId], references: [id], onDelete: Cascade)
   manager       User?          @relation("CohortManager", fields: [managerId], references: [id], onDelete: SetNull)
   enrollments   Enrollment[]
   announcements Announcement[]
+  // This intake's curriculum.
+  lessons       CohortLesson[]
+  modules       CohortModule[]
 
+  @@index([courseId])
   @@index([managerId])
   @@map("cohorts")
 }
@@ -178,6 +197,7 @@ model Course {
   instructor   User          @relation("CourseInstructor", fields: [instructorId], references: [id])
   manager      User?         @relation("CourseManager",    fields: [managerId],    references: [id], onDelete: SetNull)
   modules      Module[]
+  cohorts      Cohort[]
   enrollments  Enrollment[]
   certificates Certificate[]
   announcements Announcement[]
@@ -197,6 +217,15 @@ model Module {
 
   course  Course   @relation(fields: [courseId], references: [id], onDelete: Cascade)
   lessons Lesson[]
+  // Assessments hang off the MODULE, not a lesson. A module is a unit of
+  // work with its own lessons; the graded evidence of that unit (what to
+  // submit, what to be quizzed on) is module-level, not tied to one
+  // particular lesson.
+  assignments Assignment[]
+  quizzes     Quiz[]
+  // Which cohorts deliver this module. A module can be taught in many
+  // intakes, and a cohort only teaches modules of its own course.
+  cohortLinks CohortModule[]
 
   fileKey    String? @db.Text
   fileName   String? @db.Text
@@ -208,13 +237,15 @@ model Module {
   @@map("modules")
 }
 
+// A lesson is a single teachable item inside a module. It may carry many
+// videos (recorded talks, screen recordings, demos) and may be scheduled
+// into a cohort's curriculum via CohortLesson.
 model Lesson {
   id          String      @id @default(cuid())
   moduleId    String
   title       String
   contentType ContentType
-  content     String?     @db.Text // markdown body or external URL
-  videoUrl    String?
+  content     String?     @db.Text // markdown body for ARTICLE / notes for others
   durationMin Int?
   order       Int
   isFree      Boolean     @default(false) // preview lesson
@@ -222,33 +253,116 @@ model Lesson {
   updatedAt   DateTime    @updatedAt
 
   module      Module         @relation(fields: [moduleId], references: [id], onDelete: Cascade)
-  assignments Assignment[]
-  quizzes     Quiz[]
+  videos      LessonVideo[]
+  // A lesson can be scheduled into many cohorts (the same course is taught
+  // in every intake), so this is a many-to-many.
+  cohortLinks CohortLesson[]
 
   @@unique([moduleId, order])
   @@index([moduleId])
   @@map("lessons")
 }
 
+// One video attached to a lesson. A lesson may have several (a lecture
+// split into parts, a talk plus a demo). Either an external `url` (Vimeo,
+// YouTube, CDN) or an uploaded `fileKey` in the local store, never both.
+model LessonVideo {
+  id          String   @id @default(cuid())
+  lessonId    String
+  title       String
+  description String?  @db.Text
+  url         String?  @db.Text // external HTTPS URL
+  // Uploaded through the local store (see lib/storage.ts).
+  fileKey     String?  @db.Text
+  fileName    String?  @db.Text
+  fileSize    Int?
+  fileType    String?
+  durationMin Int?
+  order       Int
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([lessonId, order])
+  @@index([lessonId])
+  @@map("lesson_videos")
+}
+
+// ---------- Cohort curriculum ----------
+
+// A cohort's ordered delivery plan: which lessons of its course this
+// intake actually teaches, in what order. Cohorts that define no plan fall
+// back to the whole course, so this is additive rather than mandatory.
+model CohortLesson {
+  id        String   @id @default(cuid())
+  cohortId  String
+  lessonId  String
+  order     Int
+  // Optional gate: the lesson becomes visible to students at/after this
+  // time. Null means "available from the start of the cohort".
+  releaseAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cohort Cohort @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@unique([cohortId, lessonId])
+  @@unique([cohortId, order])
+  @@index([lessonId])
+  @@map("cohort_lessons")
+}
+
+// Which modules a cohort delivers. Modules of one course only — enforced
+// by the server actions, which refuse a cross-course link.
+model CohortModule {
+  id        String   @id @default(cuid())
+  cohortId  String
+  moduleId  String
+  order     Int
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  cohort Cohort @relation(fields: [cohortId], references: [id], onDelete: Cascade)
+  module Module @relation(fields: [moduleId], references: [id], onDelete: Cascade)
+
+  @@unique([cohortId, moduleId])
+  @@unique([cohortId, order])
+  @@index([moduleId])
+  @@map("cohort_modules")
+}
+
 // ---------- Enrollment & progress ----------
 
+// An enrollment is a student's seat in ONE cohort. The course is
+// derived from the cohort — `courseId` is denormalized here purely so
+// course-level queries ("which courses is this user active in?") stay
+// a single indexed lookup instead of a join through Cohort. It is
+// always written equal to `cohort.courseId` by the server actions.
 model Enrollment {
   id        String           @id @default(cuid())
   userId    String
+  cohortId  String
   courseId  String
-  cohortId  String?
-  status    EnrollmentStatus @default(ACTIVE)
+  status    EnrollmentStatus @default(PENDING)
   progress  Int              @default(0) // 0-100, derived
   enrolledAt DateTime        @default(now())
-  completedAt DateTime?
+  // Set when a MANAGER/ADMIN activates a PENDING self-enrollment.
+  approvedAt   DateTime?
+  approvedById String?
+  completedAt  DateTime?
 
   user   User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  cohort Cohort  @relation(fields: [cohortId], references: [id], onDelete: Cascade)
   course Course  @relation(fields: [courseId], references: [id], onDelete: Cascade)
-  cohort Cohort? @relation(fields: [cohortId], references: [id])
+  approvedBy User? @relation("EnrollmentApprover", fields: [approvedById], references: [id], onDelete: SetNull)
 
-  @@unique([userId, courseId])
+  @@unique([userId, cohortId])
   @@index([userId])
+  @@index([cohortId])
   @@index([courseId])
+  @@index([status])
   @@map("enrollments")
 }
 
@@ -268,9 +382,12 @@ model LessonProgress {
 
 // ---------- Assignments & submissions ----------
 
+// An assignment is the graded evidence for a MODULE. Submissions hang off
+// it, and the grading queue reaches the owning course via
+// `assignment.module.course` (two hops, not three).
 model Assignment {
   id           String   @id @default(cuid())
-  lessonId     String
+  moduleId     String
   title        String
   prompt       String   @db.Text
   dueDate      DateTime?
@@ -279,10 +396,10 @@ model Assignment {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  lesson      Lesson       @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  module      Module       @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   submissions Submission[]
 
-  @@index([lessonId])
+  @@index([moduleId])
   @@map("assignments")
 }
 
@@ -310,9 +427,11 @@ model Submission {
 
 // ---------- Quizzes ----------
 
+// A quiz is module-level assessment. Questions are authored against the
+// quiz; attempts are a student's scored run through it.
 model Quiz {
   id          String   @id @default(cuid())
-  lessonId    String
+  moduleId    String
   title       String
   description String?  @db.Text
   timeLimit   Int? // seconds; null = untimed
@@ -320,11 +439,11 @@ model Quiz {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  lesson    Lesson        @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  module    Module         @relation(fields: [moduleId], references: [id], onDelete: Cascade)
   questions QuizQuestion[]
   attempts  QuizAttempt[]
 
-  @@index([lessonId])
+  @@index([moduleId])
   @@map("quizzes")
 }
 

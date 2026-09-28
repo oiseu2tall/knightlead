@@ -35,6 +35,15 @@ type Course = {
   lessonCount: number;
   instructor: { name: string | null; email: string };
   manager: { name: string | null; email: string } | null;
+  cohorts: {
+    id: string;
+    name: string;
+    startDate: string;
+    endDate: string;
+    isOpen: boolean;
+    capacity: number | null;
+    seatCount: number;
+  }[];
 };
 
 type Props = {
@@ -83,7 +92,8 @@ export default function CourseModulesClient({ course, initialModules, role }: Pr
             </Badge>
             <span className="text-xs text-ink-muted">
               {course.moduleCount} {course.moduleCount === 1 ? "module" : "modules"} ·{" "}
-              {course.lessonCount} {course.lessonCount === 1 ? "lesson" : "lessons"}
+              {course.lessonCount} {course.lessonCount === 1 ? "lesson" : "lessons"} ·{" "}
+              {course.cohorts.length} {course.cohorts.length === 1 ? "cohort" : "cohorts"}
             </span>
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">{course.title}</h1>
@@ -116,6 +126,55 @@ export default function CourseModulesClient({ course, initialModules, role }: Pr
           </Button>
         </div>
       </div>
+
+      {/* This course's intakes. Enrollment happens per cohort, so without
+          this panel a manager has no way to see where students are
+          actually sitting. */}
+      <section className="mb-8">
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <h2 className="text-sm font-semibold uppercase tracking-[0.12em] text-ink-muted">
+            Cohorts (intakes)
+          </h2>
+          <Link
+            href="/admin/cohorts"
+            className="text-xs font-semibold text-brand-500 hover:text-brand-600"
+          >
+            Manage cohorts →
+          </Link>
+        </div>
+        {course.cohorts.length === 0 ? (
+          <Card>
+            <p className="text-sm text-ink-muted">
+              This course has no cohorts, so nobody can enroll in it. Create an
+              intake under Manage · Cohorts.
+            </p>
+          </Card>
+        ) : (
+          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            {course.cohorts.map((c) => (
+              <li key={c.id}>
+                <Card className="h-full">
+                  <div className="flex items-start justify-between gap-2">
+                    <p className="truncate text-sm font-semibold text-ink">{c.name}</p>
+                    <Badge tone={c.isOpen ? "success" : "warning"}>
+                      {c.isOpen ? "open" : "closed"}
+                    </Badge>
+                  </div>
+                  <p className="mt-1 text-xs text-ink-muted">
+                    {new Date(c.startDate).toLocaleDateString()} →{" "}
+                    {new Date(c.endDate).toLocaleDateString()}
+                  </p>
+                  <p className="mt-2 text-xs text-ink-muted">
+                    {c.capacity === null
+                      ? `${c.seatCount} ${c.seatCount === 1 ? "seat" : "seats"}`
+                      : `${c.seatCount}/${c.capacity} seats`}
+                  </p>
+                </Card>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
 
       {initialModules.length === 0 ? (
         <EmptyState

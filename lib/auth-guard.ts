@@ -6,6 +6,7 @@
 import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import type { Role } from "@prisma/client";
+import { db } from "@/lib/db";
 
 export class AuthError extends Error {
   constructor(public readonly code: "UNAUTHENTICATED" | "FORBIDDEN") {
@@ -122,4 +123,146 @@ export function canApproveEnrollments(role: Role | undefined | null): boolean {
  */
 export function canGrade(role: Role | undefined | null): boolean {
   return role === "INSTRUCTOR" || role === "ADMIN";
+}
+
+// ---------------------------------------------------------------------------
+// Cohort-aware course access
+// ---------------------------------------------------------------------------
+
+/** Enrollment states that grant access to a course's content. */
+const LIVE_ENROLLMENT_STATUSES = ["ACTIVE", "COMPLETED"] as const;
+
+/**
+ * The student's seat in a course, if any.
+ *
+ * Access to a course is derived from an approved cohort seat, never from
+ * a course-level row: a student enrolls into an *intake*, and the cohort
+ * determines the course. Because one course can have many cohorts, a
+ * student may hold several seats in the same course — so this resolves to
+ * the single most relevant seat rather than expecting one.
+ *
+ * `access` distinguishes the three states the UI must render differently:
+ *   - "live"    → an approved seat; course content is unlocked
+ *   - "pending" → a self-enrollment awaiting manager approval
+ *   - "none"    → no seat in any cohort of this course
+ */
+export type CourseAccess = {
+  access: "live" | "pending" | "none";
+  enrollmentId: string | null;
+  cohortId: string | null;
+  cohortName: string | null;
+  status: (typeof LIVE_ENROLLMENT_STATUSES)[number] | "PENDING" | "DROPPED" | "SUSPENDED" | null;
+  progress: number;
+  /** Every seat the student holds in this course, one per cohort. */
+  seats: {
+    enrollmentId: string;
+    cohortId: string;
+    cohortName: string;
+    cohortSlug: string;
+    status: string;
+    progress: number;
+    approvedAt: Date | null;
+  }[];
+};
+
+/**
+ * Resolve how a student may access a course, based on their cohort seats.
+ *
+ * This is the single source of truth for course access — course pages,
+ * lesson pages, assignment actions, and grading all call it, so the
+ * PENDING/live rules can't drift between them.
+ */
+export async function getCourseAccess(userId: string, courseId: string): Promise<CourseAccess> {
+  const rows = await db.enrollment.findMany({
+    where: { userId, courseId },
+    include: { cohort: { select: { id: true, name: true, slug: true } } },
+    orderBy: [{ enrolledAt: "desc" }],
+  });
+
+  const seats = rows.map((e) => ({
+    enrollmentId: e.id,
+    cohortId: e.cohortId,
+    cohortName: e.cohort.name,
+    cohortSlug: e.cohort.slug,
+    status: e.status,
+    progress: e.progress,
+    approvedAt: e.approvedAt,
+  }));
+
+  // A live seat wins over a pending one: a student approved into one
+  // intake can already work, so a second pending request shouldn't hide
+  // their access. Prefer the most recently approved live seat.
+  const live = seats.find(
+    (s) => s.status === "COMPLETED" || s.status === "ACTIVE",
+  );
+  if (live) {
+    return {
+      access: "live",
+      enrollmentId: live.enrollmentId,
+      cohortId: live.cohortId,
+      cohortName: live.cohortName,
+      status: live.status as CourseAccess["status"],
+      progress: live.progress,
+      seats,
+    };
+  }
+
+  const pending = seats.find((s) => s.status === "PENDING");
+  if (pending) {
+    return {
+      access: "pending",
+      enrollmentId: pending.enrollmentId,
+      cohortId: pending.cohortId,
+      cohortName: pending.cohortName,
+      status: "PENDING",
+      progress: pending.progress,
+      seats,
+    };
+  }
+
+  return {
+    access: "none",
+    enrollmentId: null,
+    cohortId: null,
+    cohortName: null,
+    status: null,
+    progress: 0,
+    seats,
+  };
+}
+
+/**
+ * The seat to write progress to: the student's live one in this course.
+ *
+ * Returns null when the student has no live seat. Callers should treat
+ * null as "not enrolled" and refuse the write.
+ */
+export async function findLiveEnrollment(userId: string, courseId: string) {
+  return db.enrollment.findFirst({
+    where: { userId, courseId, status: { in: [...LIVE_ENROLLMENT_STATUSES] } },
+    orderBy: [{ approvedAt: "desc" }, { enrolledAt: "desc" }],
+    select: { id: true, cohortId: true, progress: true, status: true },
+  });
+}
+
+/**
+ * Whether a cohort can still accept seats, ignoring any existing seat the
+ * user may already hold.
+ *
+ * `isOpen` gates self-enrollment only — staff placing a student
+ * overrides it. `capacity` gates both. Returns a reason when the cohort
+ * is not available, so callers can surface it directly.
+ */
+export async function cohortAvailability(cohort: {
+  isOpen: boolean;
+  capacity: number | null;
+  enrolledCount: number;
+}): Promise<{ open: boolean; reason: string | null }> {
+  if (cohort.capacity !== null && cohort.enrolledCount >= cohort.capacity) {
+    return { open: false, reason: "This cohort is full." };
+  }
+  if (!cohort.isOpen) {
+    return { open: false, reason: "This cohort is not open for enrollment." };
+  }
+  return { open: true, reason: null };
 }

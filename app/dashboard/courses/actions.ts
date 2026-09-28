@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser, AuthError, canEnroll } from "@/lib/auth-guard";
+import { findSeatTeachingLesson, recomputeProgress } from "@/lib/curriculum";
 import { rateLimit } from "@/lib/rate-limit";
 import { headers } from "next/headers";
 
@@ -39,12 +40,13 @@ export async function markLessonComplete(formData: FormData): Promise<LessonActi
   }
   const courseId = lesson.module.courseId;
 
-  // 2. User must be enrolled.
-  const enrollment = await db.enrollment.findUnique({
-    where: { userId_courseId: { userId: user.id, courseId } },
-    select: { id: true },
-  });
-  if (!enrollment) return { ok: false, error: "You are not enrolled in this course" };
+  // 2. Find the live seat whose cohort actually teaches this lesson. A
+  // student can hold several seats in one course (one per intake), and a
+  // cohort's plan may not include every course lesson — crediting the
+  // wrong seat, or a lesson this intake never scheduled, would both
+  // corrupt that seat's progress.
+  const seat = await findSeatTeachingLesson(user.id, courseId, lessonId);
+  if (!seat) return { ok: false, error: "This lesson isn't part of your cohort's plan" };
 
   // 3. Upsert the progress row. `create` may fail on duplicate — caught.
   try {
@@ -54,36 +56,13 @@ export async function markLessonComplete(formData: FormData): Promise<LessonActi
     if (!(e as { code?: string }).code || (e as { code?: string }).code !== "P2002") throw e;
   }
 
-  // 4. Recompute course progress: completed / total lessons.
-  // `LessonProgress` doesn't expose a `lesson` relation — only the
-  // `lessonId` FK — so we collect the lesson ids for this course
-  // first and count the progress rows whose `lessonId` is in the set.
-  const lessonIds = await db.lesson.findMany({
-    where: { module: { courseId } },
-    select: { id: true },
-  });
-  const lessonIdList = lessonIds.map((l) => l.id);
-
-  const [completed, total] = await Promise.all([
-    lessonIdList.length
-      ? db.lessonProgress.count({
-          where: { userId: user.id, lessonId: { in: lessonIdList } },
-        })
-      : 0,
-    lessonIdList.length,
-  ]);
-  const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
-
-  await db.enrollment.update({
-    where: { id: enrollment.id },
-    data: {
-      progress: percent,
-      status: percent === 100 ? "COMPLETED" : "ACTIVE",
-      completedAt: percent === 100 ? new Date() : null,
-    },
-  });
+  // 4. Recompute progress against that seat's curriculum, so a student is
+  // measured against the plan their intake actually teaches.
+  const percent =
+    (await recomputeProgress(user.id, courseId, seat.cohortId)) ?? 0;
 
   revalidatePath(`/dashboard/courses/${courseSlug}`);
+  revalidatePath(`/dashboard/courses/${courseSlug}/lessons/${lessonId}`);
   revalidatePath("/dashboard");
   return { ok: true, progress: percent };
 }
@@ -93,18 +72,24 @@ export async function markLessonComplete(formData: FormData): Promise<LessonActi
 // ---------------------------------------------------------------------------
 
 const enrollInput = z.object({
-  courseId: z.string().min(1).max(64),
+  cohortId: z.string().min(1).max(64),
 });
 
 /**
- * Enroll the current user in a course.
+ * Enroll the current user in a cohort.
+ *
+ * Students enroll into an *intake*, not into a course. The course is
+ * derived from the cohort, so a student who takes the same course twice
+ * holds two seats in two cohorts rather than colliding on a single
+ * course-level row. `isOpen` gates self-enrollment; staff-created seats
+ * bypass it (see staffEnrollStudent).
  *
  * Role rule: only STUDENTs can enroll. INSTRUCTOR, MANAGER, and ADMIN
  * are staff — they supervise the catalog, they don't take courses. This
  * is a product decision, NOT a hierarchy: ADMIN does NOT inherit the
  * right to enroll. See `canEnroll()` in lib/auth-guard.ts.
  */
-export async function enrollInCourse(formData: FormData): Promise<EnrollResult> {
+export async function enrollInCohort(formData: FormData): Promise<EnrollResult> {
   let user;
   try {
     user = await requireUser();
@@ -121,21 +106,35 @@ export async function enrollInCourse(formData: FormData): Promise<EnrollResult> 
   const limited = await rateLimit(`enroll:${user.id}:${ip}`, { limit: 20, windowMs: 60_000 });
   if (!limited.ok) return { ok: false, error: "Slow down — too many enrollment requests." };
 
-  const parsed = enrollInput.safeParse({ courseId: formData.get("courseId") });
-  if (!parsed.success) return { ok: false, error: "Invalid course" };
-  const { courseId } = parsed.data;
+  const parsed = enrollInput.safeParse({ cohortId: formData.get("cohortId") });
+  if (!parsed.success) return { ok: false, error: "Invalid cohort" };
+  const { cohortId } = parsed.data;
 
-  // Course must exist and be published.
-  const course = await db.course.findUnique({
-    where: { id: courseId },
-    select: { id: true, slug: true, isPublished: true },
+  // The cohort carries the course. Self-enrollment additionally requires
+  // the course to be published and the intake to be open.
+  const cohort = await db.cohort.findUnique({
+    where: { id: cohortId },
+    select: {
+      id: true,
+      name: true,
+      isOpen: true,
+      capacity: true,
+      course: { select: { id: true, slug: true, isPublished: true } },
+    },
   });
-  if (!course) return { ok: false, error: "Course not found" };
-  if (!course.isPublished) return { ok: false, error: "This course is not available for enrollment yet." };
+  if (!cohort) return { ok: false, error: "Cohort not found" };
+  if (!cohort.course.isPublished) {
+    return { ok: false, error: "This course is not available for enrollment yet." };
+  }
+  if (!cohort.isOpen) {
+    return { ok: false, error: `"${cohort.name}" is not open for enrollment. Contact your coordinator.` };
+  }
 
-  // Idempotent: existing enrollment is a no-op success.
+  // Idempotent: an existing seat in this cohort is a no-op success. Note
+  // this is per-cohort, so a prior seat in a *different* cohort of the
+  // same course does not block a new request.
   const existing = await db.enrollment.findUnique({
-    where: { userId_courseId: { userId: user.id, courseId } },
+    where: { userId_cohortId: { userId: user.id, cohortId } },
     select: { id: true },
   });
   if (existing) {
@@ -144,20 +143,92 @@ export async function enrollInCourse(formData: FormData): Promise<EnrollResult> 
     return { ok: true };
   }
 
+  if (cohort.capacity !== null) {
+    const taken = await db.enrollment.count({
+      where: { cohortId, status: { in: ["PENDING", "ACTIVE", "COMPLETED"] } },
+    });
+    if (taken >= cohort.capacity) {
+      return { ok: false, error: `"${cohort.name}" is full. Pick another intake.` };
+    }
+  }
+
   // Self-enrollments start in PENDING state: the student can't access
   // course content until a manager or admin approves/activates the
   // enrollment. This is a deliberate product decision — see the
   // capability matrix in README.md.
   await db.enrollment.create({
-    data: { userId: user.id, courseId, status: "PENDING", progress: 0 },
+    data: {
+      userId: user.id,
+      cohortId,
+      // Denormalized copy of cohort.courseId.
+      courseId: cohort.course.id,
+      status: "PENDING",
+      progress: 0,
+    },
   });
   await db.auditLog.create({
-    data: { userId: user.id, action: "ENROLL_COURSE", resource: `course:${courseId}` },
+    data: {
+      userId: user.id,
+      action: "ENROLL_COHORT",
+      resource: `cohort:${cohortId}`,
+      metadata: { course: cohort.course.slug },
+    },
   });
 
   revalidatePath("/dashboard");
   revalidatePath("/dashboard/courses");
   revalidatePath("/dashboard/courses/browse");
-  revalidatePath(`/dashboard/courses/${course.slug}`);
+  revalidatePath(`/dashboard/courses/${cohort.course.slug}`);
+  return { ok: true };
+}
+
+/**
+ * Cancel the current user's own PENDING request for a cohort.
+ *
+ * Only PENDING rows are withdrawable: an ACTIVE seat represents course
+ * work already done, and that relationship should be ended by a manager
+ * (or by completing the course), not silently by the student.
+ */
+export async function withdrawEnrollment(formData: FormData): Promise<EnrollResult> {
+  let user;
+  try {
+    user = await requireUser();
+  } catch (e) {
+    if (e instanceof AuthError) return { ok: false, error: "You must be signed in." };
+    throw e;
+  }
+
+  if (!canEnroll(user.role)) {
+    return { ok: false, error: "Only students can manage enrollments." };
+  }
+
+  const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
+  const limited = await rateLimit(`enroll-withdraw:${user.id}:${ip}`, { limit: 20, windowMs: 60_000 });
+  if (!limited.ok) return { ok: false, error: "Slow down — too many requests." };
+
+  const parsed = enrollInput.safeParse({ cohortId: formData.get("cohortId") });
+  if (!parsed.success) return { ok: false, error: "Invalid cohort" };
+  const { cohortId } = parsed.data;
+
+  // Scoped by userId as well as id-derived lookup, so one student can
+  // never cancel another's request by guessing a cohort id.
+  const enrollment = await db.enrollment.findUnique({
+    where: { userId_cohortId: { userId: user.id, cohortId } },
+    select: { id: true, status: true, cohort: { select: { course: { select: { slug: true } } } } },
+  });
+  if (!enrollment) return { ok: false, error: "You are not enrolled in this cohort." };
+  if (enrollment.status !== "PENDING") {
+    return { ok: false, error: "This seat is already active — contact your coordinator to leave." };
+  }
+
+  await db.enrollment.update({ where: { id: enrollment.id }, data: { status: "DROPPED" } });
+  await db.auditLog.create({
+    data: { userId: user.id, action: "WITHDRAW_ENROLLMENT", resource: `enrollment:${enrollment.id}` },
+  });
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/courses");
+  revalidatePath("/dashboard/courses/browse");
+  revalidatePath(`/dashboard/courses/${enrollment.cohort.course.slug}`);
   return { ok: true };
 }

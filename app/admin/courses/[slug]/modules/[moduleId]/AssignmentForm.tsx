@@ -12,7 +12,6 @@ type Attachment = { key: string; name: string; size: number; url: string };
 
 export type AssignmentFormData = {
   id?: string;
-  lessonId?: string;
   title?: string;
   prompt?: string;
   dueDate?: string;
@@ -21,13 +20,11 @@ export type AssignmentFormData = {
 };
 
 export function AssignmentFormFields({
-  courseId: _courseId,
-  lessons,
+  moduleId,
   initial,
   onDone,
 }: {
-  courseId: string;
-  lessons: { id: string; title: string; contentType: string }[];
+  moduleId: string;
   initial?: AssignmentFormData;
   onDone?: () => void;
 }) {
@@ -35,7 +32,6 @@ export function AssignmentFormFields({
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState(initial?.title ?? "");
-  const [lessonId, setLessonId] = useState(initial?.lessonId ?? "");
   const [prompt, setPrompt] = useState(initial?.prompt ?? "");
   const [dueDate, setDueDate] = useState(initial?.dueDate ? new Date(initial.dueDate).toISOString().slice(0, 16) : "");
   const [maxScore, setMaxScore] = useState(initial?.maxScore ?? 100);
@@ -70,7 +66,7 @@ export function AssignmentFormFields({
     e.preventDefault();
     setError(null);
     const fd = new FormData();
-    fd.set("lessonId", lessonId);
+    fd.set("moduleId", moduleId);
     fd.set("title", title);
     fd.set("prompt", prompt);
     fd.set("dueDate", dueDate);
@@ -87,22 +83,10 @@ export function AssignmentFormFields({
 
   return (
     <form onSubmit={onSubmit} className="space-y-3">
-      <Field label="Lesson" name="lessonId" hint="Attach this assignment to a lesson">
-        <select
-          name="lessonId"
-          required
-          value={lessonId}
-          onChange={(e) => setLessonId(e.target.value)}
-          className="block w-full rounded-lg border border-line bg-surface px-3 py-2.5 text-sm text-ink focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-        >
-          <option value="" disabled>— Pick a lesson —</option>
-          {lessons.map((l) => (
-            <option key={l.id} value={l.id}>
-              {l.title} ({l.contentType.toLowerCase().replace("_", " ")})
-            </option>
-          ))}
-        </select>
-      </Field>
+      <p className="rounded-md border border-line bg-surface-dim px-3 py-2 text-xs text-ink-muted">
+        This assignment belongs to the module, not to a single lesson — it
+        covers the module as a whole.
+      </p>
       <Field label="Title" name="title">
         <Input name="title" value={title} onChange={(e) => setTitle(e.target.value)} required maxLength={160} />
       </Field>

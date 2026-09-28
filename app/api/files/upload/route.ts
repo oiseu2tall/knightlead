@@ -2,7 +2,8 @@
 // storage adapter, returns the object key + signed URL.
 //
 // Auth: caller must be signed in (any role).
-// Limits: 50MB per file (enforced again in storage.putObject).
+// Limits: 50MB per file for documents/images, 500MB for video
+// (enforced again in storage.putObject).
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
@@ -23,6 +24,9 @@ const ALLOWED = new Set([
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  // Video, for lesson recordings. Kept to container formats a browser
+  // can play directly rather than anything that would need transcoding.
+  "video/mp4", "video/webm", "video/ogg", "video/quicktime",
 ]);
 
 export async function POST(req: NextRequest) {
@@ -49,6 +53,17 @@ export async function POST(req: NextRequest) {
   }
   if (!ALLOWED.has(file.type)) {
     return NextResponse.json({ error: "unsupported_type", type: file.type }, { status: 415 });
+  }
+
+  // Reject oversized uploads before buffering: a rejected 500 MB video
+  // would otherwise be read fully into memory first. The authoritative
+  // check still lives in putObject.
+  const maxBytes = file.type.startsWith("video/") ? 500 * 1024 * 1024 : 50 * 1024 * 1024;
+  if (file.size > maxBytes) {
+    return NextResponse.json(
+      { error: "too_large", maxBytes },
+      { status: 413 },
+    );
   }
 
   const buf = Buffer.from(await file.arrayBuffer());

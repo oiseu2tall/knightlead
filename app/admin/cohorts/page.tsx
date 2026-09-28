@@ -14,10 +14,12 @@ export default async function CohortsAdmin() {
     redirect("/forbidden");
   }
 
-  const [cohorts, managers] = await Promise.all([
+  const [cohorts, managers, courses] = await Promise.all([
     db.cohort.findMany({
-      orderBy: { startDate: "desc" },
+      orderBy: [{ course: { title: "asc" } }, { startDate: "desc" }],
       include: {
+        // A cohort is an intake of one course — the list has to say which.
+        course: { select: { id: true, title: true, slug: true } },
         manager: { select: { id: true, name: true, email: true } },
         _count: { select: { enrollments: true } },
       },
@@ -26,6 +28,10 @@ export default async function CohortsAdmin() {
       where: { role: { in: ["MANAGER", "ADMIN"] } },
       orderBy: { name: "asc" },
       select: { id: true, name: true, email: true, role: true },
+    }),
+    db.course.findMany({
+      orderBy: { title: "asc" },
+      select: { id: true, title: true, slug: true },
     }),
   ]);
 
@@ -37,6 +43,8 @@ export default async function CohortsAdmin() {
       startMs > now ? "upcoming" : endMs < now ? "ended" : "active";
     return {
       id: c.id,
+      courseId: c.courseId,
+      course: c.course,
       name: c.name,
       slug: c.slug,
       startDate: c.startDate.toISOString(),
@@ -44,6 +52,8 @@ export default async function CohortsAdmin() {
       description: c.description,
       managerId: c.managerId,
       manager: c.manager,
+      capacity: c.capacity,
+      isOpen: c.isOpen,
       enrollmentCount: c._count.enrollments,
       status,
     };
@@ -54,6 +64,7 @@ export default async function CohortsAdmin() {
   return (
     <CohortsAdminClient
       initialCohorts={initialCohorts}
+      courses={courses}
       managers={managers}
       role={role}
     />

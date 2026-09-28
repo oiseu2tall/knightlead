@@ -130,6 +130,11 @@ export const Icon = {
       <path d="M5 12h14M12 5l7 7-7 7" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ),
+  ChevronUp: (p: P) => (
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className={base} {...p}>
+      <path d="m18 15-6-6-6 6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  ),
   ChevronDown: (p: P) => (
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} className={base} {...p}>
       <path d="m6 9 6 6 6-6" strokeLinecap="round" strokeLinejoin="round" />

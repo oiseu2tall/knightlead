@@ -20,7 +20,7 @@ export default async function CoursesAdmin() {
       include: {
         instructor: { select: { id: true, name: true, email: true } },
         manager: { select: { id: true, name: true, email: true } },
-        _count: { select: { modules: true, enrollments: true } },
+        _count: { select: { modules: true, enrollments: true, cohorts: true } },
       },
     }),
     db.user.findMany({
@@ -48,6 +48,7 @@ export default async function CoursesAdmin() {
     isPublished: c.isPublished,
     moduleCount: c._count.modules,
     enrollmentCount: c._count.enrollments,
+    cohortCount: c._count.cohorts,
   }));
 
   const role = session.user.role === "ADMIN" ? "ADMIN" : "MANAGER";

@@ -57,28 +57,16 @@ export default async function InstructorModulePage({
   const mod = course.modules[0];
   if (!mod) notFound();
 
-  // Fetch assignments through lessons.
-  const lessonsWithAssignments = await db.lesson.findMany({
+  // Assessments hang off the module directly.
+  const assignments = await db.assignment.findMany({
     where: { moduleId: mod.id },
-    orderBy: { order: "asc" },
-    include: {
-      assignments: {
-        orderBy: { createdAt: "desc" },
-        include: { _count: { select: { submissions: true } } },
-      },
-    },
+    orderBy: { createdAt: "desc" },
+    include: { _count: { select: { submissions: true } } },
   });
 
-  const assignments = lessonsWithAssignments.flatMap((l) =>
-    l.assignments.map((a) => ({
-      id: a.id,
-      title: a.title,
-      prompt: a.prompt,
-      dueDate: a.dueDate,
-      maxScore: a.maxScore,
-      _count: a._count,
-    })),
-  );
+  const videoCount = await db.lessonVideo.count({
+    where: { lesson: { moduleId: mod.id } },
+  });
 
   const fileUrl = mod.fileKey
     ? `/api/files/download/${encodeURIComponent(mod.fileKey)}?t=${signToken(mod.fileKey)}`
@@ -109,6 +97,12 @@ export default async function InstructorModulePage({
             <span>Module {mod.order}</span>
             <span>·</span>
             <span>{mod.lessons.length} lessons</span>
+            {videoCount > 0 && (
+              <>
+                <span>·</span>
+                <span>{videoCount} videos</span>
+              </>
+            )}
             <span>·</span>
             <span>{assignments.length} assignments</span>
           </div>

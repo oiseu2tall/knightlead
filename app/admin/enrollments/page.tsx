@@ -13,19 +13,25 @@ export default async function EnrollmentsPage() {
     redirect("/forbidden");
   }
 
-  const [students, courses, cohorts, recent] = await Promise.all([
+  const [students, cohorts, recent] = await Promise.all([
     db.user.findMany({
       where: { role: "STUDENT" },
       orderBy: [{ name: "asc" }, { email: "asc" }],
       select: { id: true, name: true, email: true },
     }),
-    db.course.findMany({
-      orderBy: { createdAt: "desc" },
-      select: { id: true, title: true, slug: true, isPublished: true },
-    }),
+    // Cohorts are the unit of enrollment, so the form lists them grouped by
+    // their course, with seat counts to show which intakes are available.
     db.cohort.findMany({
-      orderBy: { startDate: "desc" },
-      select: { id: true, name: true, startDate: true },
+      orderBy: [{ course: { title: "asc" } }, { startDate: "desc" }],
+      select: {
+        id: true,
+        name: true,
+        startDate: true,
+        isOpen: true,
+        capacity: true,
+        course: { select: { id: true, title: true, slug: true, isPublished: true } },
+        _count: { select: { enrollments: true } },
+      },
     }),
     // Include PENDING self-enrollments so managers/admins can
     // approve them. Staff-enrolled students are created ACTIVE by
@@ -36,8 +42,18 @@ export default async function EnrollmentsPage() {
       take: 50,
       include: {
         user: { select: { id: true, name: true, email: true } },
-        course: { select: { id: true, title: true, slug: true } },
-        cohort: { select: { id: true, name: true } },
+        // Read the course off the cohort — that is the authoritative link.
+        // The denormalized courseId is kept in sync by the actions.
+        cohort: {
+          select: {
+            id: true,
+            name: true,
+            course: { select: { id: true, title: true, slug: true } },
+          },
+        },
+        // Who approved the seat, and when. Null for staff-created seats
+        // that predate approval tracking.
+        approvedBy: { select: { id: true, name: true, email: true } },
       },
     }),
   ]);
@@ -45,15 +61,24 @@ export default async function EnrollmentsPage() {
   return (
     <EnrollmentsClient
       students={students}
-      courses={courses}
-      cohorts={cohorts.map((c) => ({ id: c.id, name: c.name, startDate: c.startDate.toISOString() }))}
+      cohorts={cohorts.map((c) => ({
+        id: c.id,
+        name: c.name,
+        startDate: c.startDate.toISOString(),
+        isOpen: c.isOpen,
+        capacity: c.capacity,
+        enrolledCount: c._count.enrollments,
+        course: c.course,
+      }))}
       recent={recent.map((e) => ({
         id: e.id,
         user: e.user,
-        course: e.course,
-        cohort: e.cohort,
+        course: e.cohort.course,
+        cohort: { id: e.cohort.id, name: e.cohort.name },
         status: e.status,
         enrolledAt: e.enrolledAt.toISOString(),
+        approvedAt: e.approvedAt?.toISOString() ?? null,
+        approvedBy: e.approvedBy,
       }))}
       role={session.user.role === "ADMIN" ? "ADMIN" : "MANAGER"}
     />

@@ -2,7 +2,8 @@
 // instructor's courses.
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
-import { Card, PageHeader, Badge } from "@/components/ui/Primitives";
+import { signToken } from "@/lib/storage";
+import { Card, PageHeader } from "@/components/ui/Primitives";
 import { GradingPanel } from "./GradingPanel";
 
 export const metadata = { title: "Grading · Instructor" };
@@ -20,7 +21,7 @@ export default async function GradingQueue({
   // Admins see all; instructors see only their own courses.
   const baseWhere = role === "ADMIN"
     ? {}
-    : { assignment: { lesson: { module: { course: { instructorId: userId } } } } as const };
+    : { assignment: { module: { course: { instructorId: userId } } } as const };
 
   const where: Record<string, unknown> = { ...baseWhere };
 
@@ -41,10 +42,10 @@ export default async function GradingQueue({
           id: true,
           title: true,
           maxScore: true,
-          lesson: {
+          module: {
             select: {
               title: true,
-              module: { select: { course: { select: { title: true, slug: true } } } },
+              course: { select: { title: true, slug: true } },
             },
           },
         },
@@ -53,6 +54,31 @@ export default async function GradingQueue({
     orderBy: { submittedAt: "asc" },
     take: 50,
   });
+
+  // Signed URLs for whatever the student attached. Signs are minted here
+  // rather than in the client panel because signToken needs node:crypto.
+  const panels = submissions.map((s) => ({
+    id: s.id,
+    content: s.content,
+    score: s.score,
+    feedback: s.feedback,
+    status: s.status,
+    submittedAt: s.submittedAt,
+    student: s.user,
+    files: (s.attachments ?? []).map((key) => ({
+      key,
+      name: key.split("/").pop() ?? key,
+      url: `/api/files/download/${encodeURIComponent(key)}?t=${signToken(key)}`,
+    })),
+    assignment: {
+      id: s.assignment.id,
+      title: s.assignment.title,
+      maxScore: s.assignment.maxScore,
+      moduleTitle: s.assignment.module.title,
+      courseTitle: s.assignment.module.course.title,
+      courseSlug: s.assignment.module.course.slug,
+    },
+  }));
 
   const assignmentTitle = assignmentId
     ? submissions[0]?.assignment.title ?? "Assignment"
@@ -102,27 +128,8 @@ export default async function GradingQueue({
         </Card>
       ) : (
         <div className="space-y-4">
-          {submissions.map((s) => (
-            <GradingPanel
-              key={s.id}
-              submission={{
-                id: s.id,
-                content: s.content,
-                score: s.score,
-                feedback: s.feedback,
-                status: s.status,
-                submittedAt: s.submittedAt,
-                student: s.user,
-                assignment: {
-                  id: s.assignment.id,
-                  title: s.assignment.title,
-                  maxScore: s.assignment.maxScore,
-                  lessonTitle: s.assignment.lesson.title,
-                  courseTitle: s.assignment.lesson.module.course.title,
-                  courseSlug: s.assignment.lesson.module.course.slug,
-                },
-              }}
-            />
+          {panels.map((p) => (
+            <GradingPanel key={p.id} submission={p} />
           ))}
         </div>
       )}

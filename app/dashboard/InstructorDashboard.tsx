@@ -19,7 +19,7 @@ export default async function InstructorDashboard({ userId, name }: { userId: st
     db.submission.count({
       where: {
         status: "SUBMITTED",
-        assignment: { lesson: { module: { course: courseWhere } } },
+        assignment: { module: { course: courseWhere } },
       },
     }),
     db.course.findMany({
@@ -29,7 +29,7 @@ export default async function InstructorDashboard({ userId, name }: { userId: st
       take: 6,
     }),
     db.submission.findMany({
-      where: { assignment: { lesson: { module: { course: courseWhere } } } },
+      where: { assignment: { module: { course: courseWhere } } },
       orderBy: { submittedAt: "desc" },
       take: 6,
       include: {
@@ -38,14 +38,24 @@ export default async function InstructorDashboard({ userId, name }: { userId: st
           select: {
             title: true,
             maxScore: true,
-            lesson: { select: { module: { select: { course: { select: { title: true, slug: true } } } } } },
+            module: { select: { course: { select: { title: true, slug: true } } } },
           },
         },
       },
     }),
+    // A cohort belongs to exactly one course, so scoping by the course the
+    // instructor teaches is a direct filter — no need to reach through
+    // enrollments, so intakes with no students yet still appear.
     db.cohort.findMany({
-      where: { enrollments: { some: { course: courseWhere } } },
-      select: { id: true, name: true, startDate: true, endDate: true, _count: { select: { enrollments: true } } },
+      where: { course: courseWhere },
+      select: {
+        id: true,
+        name: true,
+        startDate: true,
+        endDate: true,
+        course: { select: { title: true } },
+        _count: { select: { enrollments: true } },
+      },
       orderBy: { startDate: "desc" },
       take: 4,
     }),
@@ -53,19 +63,21 @@ export default async function InstructorDashboard({ userId, name }: { userId: st
       where: {
         status: "GRADED",
         gradedAt: { gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
-        assignment: { lesson: { module: { course: courseWhere } } },
+        assignment: { module: { course: courseWhere } },
       },
       select: { score: true },
     }),
     db.submission.findMany({
       where: {
         status: "GRADED",
-        assignment: { lesson: { module: { course: courseWhere } } },
+        assignment: { module: { course: courseWhere } },
       },
       select: { score: true },
     }),
   ]);
 
+  // Seats, not distinct students — a student in two intakes of one course
+  // contributes two. The stat card is labelled to match.
   const taughtCount = taughtCourses.reduce((n, c) => n + c._count.enrollments, 0);
   const avg = gradedAll.length
     ? Math.round(gradedAll.reduce((a, s) => a + (s.score ?? 0), 0) / gradedAll.length)
@@ -89,7 +101,7 @@ export default async function InstructorDashboard({ userId, name }: { userId: st
 
       <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
         <StatCard label="Awaiting grade" value={pendingCount} tone="accent" />
-        <StatCard label="Students taught" value={taughtCount} tone="brand" />
+        <StatCard label="Seats held" value={taughtCount} tone="brand" />
         <StatCard label="Graded this week" value={graded7d.length} tone="brand" />
         <StatCard label="Average score" value={avg != null ? `${avg}%` : "—"} tone="accent" />
       </div>
@@ -116,7 +128,7 @@ export default async function InstructorDashboard({ userId, name }: { userId: st
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium text-ink">{s.assignment.title}</p>
                       <p className="truncate text-xs text-ink-muted">
-                        {s.user.name ?? s.user.email} · {s.assignment.lesson.module.course.title}
+                        {s.user.name ?? s.user.email} · {s.assignment.module.course.title}
                       </p>
                     </div>
                     <span className="hidden text-xs text-ink-muted sm:inline">
@@ -148,8 +160,9 @@ export default async function InstructorDashboard({ userId, name }: { userId: st
                   <li key={c.id} className="flex items-center justify-between gap-2">
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-ink">{c.name}</p>
-                      <p className="text-[11px] text-ink-muted">
-                        {c.startDate.toLocaleDateString()} → {c.endDate.toLocaleDateString()}
+                      <p className="truncate text-[11px] text-ink-muted">
+                        {c.course.title} · {c.startDate.toLocaleDateString()} →{" "}
+                        {c.endDate.toLocaleDateString()}
                       </p>
                     </div>
                     <Badge tone="info">{c._count.enrollments}</Badge>

@@ -1,7 +1,8 @@
 "use client";
 
-// Enroll-student form. Lets a manager/admin pick a student, a course,
-// and an optional cohort. Idempotent on the server.
+// Enroll-student form. Lets a manager/admin place a student into a
+// cohort. The cohort is the only thing picked — the course comes from it,
+// so the two can never disagree. Idempotent on the server.
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
@@ -9,19 +10,22 @@ import { Field } from "@/components/ui/Field";
 import { staffEnrollStudent } from "../catalog/actions";
 
 type Student = { id: string; name: string | null; email: string };
-type Course = { id: string; title: string; slug: string; isPublished: boolean };
-type Cohort = { id: string; name: string; startDate: Date };
+type Cohort = {
+  id: string;
+  name: string;
+  startDate: string;
+  isOpen: boolean;
+  capacity: number | null;
+  enrolledCount: number;
+  course: { id: string; title: string; slug: string; isPublished: boolean };
+};
 
 export function EnrollStudentForm({
   students,
-  courses,
   cohorts,
-  onDone,
 }: {
   students: Student[];
-  courses: Course[];
   cohorts: Cohort[];
-  onDone?: () => void;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -55,7 +59,7 @@ export function EnrollStudentForm({
           setSuccess(
             res.created
               ? "Student enrolled."
-              : "Already enrolled — cohort tag updated if you picked one.",
+              : "Student already holds a seat in that cohort.",
           );
           router.refresh();
         });
@@ -92,39 +96,43 @@ export function EnrollStudentForm({
         </div>
       </Field>
 
-      <Field label="Course" name="courseId">
-        <select
-          name="courseId"
-          required
-          defaultValue=""
-          className="block w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-        >
-          <option value="" disabled>— Pick a course —</option>
-          {courses.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.title}{c.isPublished ? "" : " (draft)"}
-            </option>
-          ))}
-        </select>
-      </Field>
-
       <Field
-        label="Cohort (optional)"
+        label="Cohort"
         name="cohortId"
-        hint="If you pick a cohort, the student is tagged with it for this course. Leave blank to enroll without a cohort."
+        hint="The course is taken from the cohort. Closed and full cohorts are still shown — staff can place a student regardless of self-enrollment settings, but not past a capacity cap."
       >
-        <select
-          name="cohortId"
-          defaultValue=""
-          className="block w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
-        >
-          <option value="">— No cohort —</option>
-          {cohorts.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name} (starts {c.startDate.toLocaleDateString()})
-            </option>
-          ))}
-        </select>
+        {cohorts.length === 0 ? (
+          <p className="rounded-lg border border-line bg-surface-dim px-3 py-2 text-xs text-ink-muted">
+            No cohorts exist yet. Create a cohort for a course first.
+          </p>
+        ) : (
+          <select
+            name="cohortId"
+            required
+            defaultValue=""
+            className="block w-full rounded-lg border border-line bg-surface px-3 py-2 text-sm text-ink focus:border-brand-500 focus:outline-none focus:ring-2 focus:ring-brand-500/30"
+          >
+            <option value="" disabled>— Pick a cohort —</option>
+            {cohorts.map((c) => {
+              const full = c.capacity !== null && c.enrolledCount >= c.capacity;
+              const seats =
+                c.capacity === null
+                  ? `${c.enrolledCount} enrolled`
+                  : `${c.enrolledCount}/${c.capacity} seats`;
+              const flags = [
+                !c.course.isPublished ? "draft course" : null,
+                !c.isOpen ? "closed to self-enrollment" : null,
+                full ? "full" : null,
+              ].filter(Boolean);
+              return (
+                <option key={c.id} value={c.id}>
+                  {c.course.title} — {c.name} ({seats}
+                  {flags.length ? `, ${flags.join(", ")}` : ""})
+                </option>
+              );
+            })}
+          </select>
+        )}
       </Field>
 
       {error && (

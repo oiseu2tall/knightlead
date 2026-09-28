@@ -28,6 +28,12 @@ export default async function CourseModulesPage({
         orderBy: { order: "asc" },
         include: { _count: { select: { lessons: true } } },
       },
+      // A course's intakes. Cohorts are where enrollment actually happens,
+      // so the course page has to expose them alongside its modules.
+      cohorts: {
+        orderBy: { startDate: "desc" },
+        include: { _count: { select: { enrollments: true } } },
+      },
     },
   });
   if (!course) notFound();
@@ -55,6 +61,15 @@ export default async function CourseModulesPage({
         lessonCount,
         instructor: course.instructor,
         manager: course.manager,
+        cohorts: course.cohorts.map((c) => ({
+          id: c.id,
+          name: c.name,
+          startDate: c.startDate.toISOString(),
+          endDate: c.endDate.toISOString(),
+          isOpen: c.isOpen,
+          capacity: c.capacity,
+          seatCount: c._count.enrollments,
+        })),
       }}
       initialModules={initialModules}
       role={session.user.role === "ADMIN" ? "ADMIN" : "MANAGER"}

@@ -86,9 +86,23 @@ export type PutOptions = {
   data: Buffer;
 };
 
+// Lesson recordings get a larger ceiling than documents and images: a
+// 50 MB cap is fine for a worksheet but rejects almost every real lecture.
+const VIDEO_CONTENT_TYPES = new Set([
+  "video/mp4", "video/webm", "video/ogg", "video/quicktime",
+]);
+const MAX_BYTES = 50 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 500 * 1024 * 1024;
+
 export async function putObject(opts: PutOptions): Promise<StoredObject> {
   if (opts.data.byteLength === 0) throw new Error("Empty file");
-  if (opts.data.byteLength > 50 * 1024 * 1024) throw new Error("File too large (50MB max)");
+  const isVideo = VIDEO_CONTENT_TYPES.has(opts.contentType);
+  const limit = isVideo ? MAX_VIDEO_BYTES : MAX_BYTES;
+  if (opts.data.byteLength > limit) {
+    throw new Error(
+      isVideo ? "Video too large (500MB max)" : "File too large (50MB max)",
+    );
+  }
 
   const id = randomBytes(16).toString("hex");
   const key = `${datePath()}/${id}${safeExtension(opts.filename)}`;

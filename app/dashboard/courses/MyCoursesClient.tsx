@@ -14,6 +14,9 @@ export type Enrollment = {
   status: "ACTIVE" | "COMPLETED" | "DROPPED" | "SUSPENDED" | "PENDING";
   progress: number;
   enrolledAt: string;
+  approvedAt: string | null;
+  /** The intake this seat belongs to. */
+  cohort: { name: string; startDate: string; endDate: string };
   course: {
     title: string;
     slug: string;
@@ -21,6 +24,15 @@ export type Enrollment = {
     moduleCount: number;
   };
 };
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+function formatRange(startIso: string, endIso: string): string {
+  const s = new Date(startIso);
+  const e = new Date(endIso);
+  if (isNaN(s.getTime()) || isNaN(e.getTime())) return "Dates to be confirmed";
+  return `${MONTHS[s.getMonth()]} ${s.getDate()} – ${MONTHS[e.getMonth()]} ${e.getDate()}, ${e.getFullYear()}`;
+}
 
 export type LearnTab = {
   href: string;
@@ -39,7 +51,7 @@ export default function MyCoursesClient({
   tabs: LearnTab[];
 }) {
   const { query, setQuery, status, setStatus, filtered } = useCourseFilters(enrollments, {
-    pickQuery: (e) => [e.course.title, e.course.instructor.name ?? ""],
+    pickQuery: (e) => [e.course.title, e.cohort.name, e.course.instructor.name ?? ""],
     pickStatus: (e) => e.status,
   });
 
@@ -65,7 +77,7 @@ export default function MyCoursesClient({
             ? role === "STUDENT" || role === "ADMIN"
               ? "Browse the catalog to enroll in your first course."
               : "Staff accounts don't take courses — supervise the catalog instead."
-            : `${filtered.length} of ${enrollments.length} ${enrollments.length === 1 ? "course" : "courses"} shown`
+            : `${filtered.length} of ${enrollments.length} ${enrollments.length === 1 ? "seat" : "seats"} shown`
         }
         accent="brand"
         action={
@@ -136,6 +148,18 @@ export default function MyCoursesClient({
                 <p className="text-xs text-ink-muted">
                   {e.course.instructor.name ?? "Instructor"} · {e.course.moduleCount} modules
                 </p>
+                {/* The intake, not just the course: a student can hold more
+                    than one seat in the same course, and these cards are one
+                    per seat. */}
+                <p className="mt-1 truncate text-xs text-ink-muted">
+                  <span className="font-medium text-ink">{e.cohort.name}</span> ·{" "}
+                  {formatRange(e.cohort.startDate, e.cohort.endDate)}
+                </p>
+                {e.status === "PENDING" && (
+                  <p className="mt-1.5 text-xs text-ink-muted">
+                    Waiting for approval before you can open the modules.
+                  </p>
+                )}
                 <div className="mt-4">
                   <div className="mb-1.5 flex items-center justify-between text-xs">
                     <span className="text-ink-muted">Progress</span>

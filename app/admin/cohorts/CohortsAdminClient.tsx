@@ -17,8 +17,11 @@ import { CohortFormFields, type CohortFormData } from "./CohortForm";
 import { deleteCohort } from "../catalog/actions";
 
 type Manager = { id: string; name: string | null; email: string; role: string };
+type Course = { id: string; title: string; slug: string };
 export type Cohort = {
   id: string;
+  courseId: string;
+  course: Course;
   name: string;
   slug: string;
   startDate: string; // serialized for client component
@@ -26,17 +29,20 @@ export type Cohort = {
   description: string | null;
   managerId: string | null;
   manager: { id: string; name: string | null; email: string } | null;
+  capacity: number | null;
+  isOpen: boolean;
   enrollmentCount: number;
   status: "upcoming" | "active" | "ended";
 };
 
 type Props = {
   initialCohorts: Cohort[];
+  courses: Course[];
   managers: Manager[];
   role: "MANAGER" | "ADMIN";
 };
 
-export default function CohortsAdminClient({ initialCohorts, managers, role }: Props) {
+export default function CohortsAdminClient({ initialCohorts, courses, managers, role }: Props) {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | Cohort["status"]>("all");
@@ -51,6 +57,7 @@ export default function CohortsAdminClient({ initialCohorts, managers, role }: P
       return (
         c.name.toLowerCase().includes(q) ||
         c.slug.toLowerCase().includes(q) ||
+        c.course.title.toLowerCase().includes(q) ||
         (c.description ?? "").toLowerCase().includes(q)
       );
     });
@@ -165,10 +172,10 @@ export default function CohortsAdminClient({ initialCohorts, managers, role }: P
         open={createOpen}
         onClose={() => setCreateOpen(false)}
         title="New cohort"
-        description="Group students by start and end date. Optional manager ownership."
+        description="An intake of one course. Students enroll into cohorts, not into courses directly."
         widthClass="max-w-xl"
       >
-        <CohortFormFields managers={managers} onDone={() => setCreateOpen(false)} />
+        <CohortFormFields courses={courses} managers={managers} onDone={() => setCreateOpen(false)} />
       </Modal>
 
       <Modal
@@ -180,6 +187,7 @@ export default function CohortsAdminClient({ initialCohorts, managers, role }: P
       >
         {editing && (
           <CohortFormFields
+            courses={courses}
             managers={managers}
             initial={cohortToFormData(editing)}
             onDone={() => setEditing(null)}
@@ -193,12 +201,15 @@ export default function CohortsAdminClient({ initialCohorts, managers, role }: P
 function cohortToFormData(c: Cohort): CohortFormData {
   return {
     id: c.id,
+    courseId: c.courseId,
     name: c.name,
     slug: c.slug,
     startDate: new Date(c.startDate),
     endDate: new Date(c.endDate),
     description: c.description,
     managerId: c.managerId,
+    capacity: c.capacity,
+    isOpen: c.isOpen,
   };
 }
 
@@ -227,11 +238,17 @@ function CohortCard({
     <Card className="card-hover relative flex h-full flex-col">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
+          <p className="truncate text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">
+            {cohort.course.title}
+          </p>
           <h3 className="truncate text-base font-semibold text-ink">{cohort.name}</h3>
           <p className="truncate text-xs text-ink-muted">/{cohort.slug}</p>
         </div>
-        <div className="flex items-center gap-1">
-          <Badge tone={tone}>{cohort.status}</Badge>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-1">
+            <Badge tone={tone}>{cohort.status}</Badge>
+            {!cohort.isOpen && <Badge tone="warning">closed</Badge>}
+          </div>
           <DropdownMenu
             ariaLabel={`Actions for ${cohort.name}`}
             items={[
@@ -239,6 +256,11 @@ function CohortCard({
                 label: "Edit",
                 icon: <Icon.Edit className="h-4 w-4" />,
                 onClick: onEdit,
+              },
+              {
+                label: "Curriculum",
+                icon: <Icon.Layers className="h-4 w-4" />,
+                onClick: () => router.push(`/admin/cohorts/${cohort.id}`),
               },
               { kind: "separator" },
               {
@@ -288,7 +310,9 @@ function CohortCard({
       <div className="mt-auto flex items-center justify-between border-t border-line pt-3 text-xs text-ink-muted">
         <span className="inline-flex items-center gap-1.5">
           <Icon.Group className="h-4 w-4" />
-          {cohort.enrollmentCount} {cohort.enrollmentCount === 1 ? "enrollment" : "enrollments"}
+          {cohort.capacity === null
+            ? `${cohort.enrollmentCount} ${cohort.enrollmentCount === 1 ? "enrollment" : "enrollments"}`
+            : `${cohort.enrollmentCount}/${cohort.capacity} seats`}
         </span>
         <button
           type="button"

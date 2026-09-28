@@ -6,6 +6,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { db } from "@/lib/db";
 import { requireUser } from "@/lib/auth-guard";
+import { findSeatTeachingModule } from "@/lib/curriculum";
 import { rateLimit } from "@/lib/rate-limit";
 import { headers } from "next/headers";
 
@@ -43,30 +44,32 @@ export async function submitAssignment(formData: FormData): Promise<SubmitResult
   }
   const { assignmentId, content, attachments: files } = parsed.data;
 
-  // Verify assignment exists + user is enrolled in the parent course.
+  // Verify assignment exists and resolve its owning course. Assessments
+  // are module-level, so the course is two hops away, not three.
   const assignment = await db.assignment.findUnique({
     where: { id: assignmentId },
     select: {
       id: true,
-      lesson: {
+      module: {
         select: {
-          module: {
-            select: {
-              courseId: true,
-              course: { select: { slug: true } },
-            },
-          },
+          id: true,
+          courseId: true,
+          course: { select: { slug: true } },
         },
       },
     },
   });
   if (!assignment) return { ok: false, error: "Assignment not found" };
 
-  const enrollment = await db.enrollment.findUnique({
-    where: { userId_courseId: { userId: user.id, courseId: assignment.lesson.module.courseId } },
-    select: { id: true },
-  });
-  if (!enrollment) return { ok: false, error: "You are not enrolled in this course" };
+  // Submitting requires a live seat in a cohort that actually teaches this
+  // module. A pending or dropped seat can't submit, and neither can a
+  // student whose intake's plan omits the module.
+  const seat = await findSeatTeachingModule(
+    user.id,
+    assignment.module.courseId,
+    assignment.module.id,
+  );
+  if (!seat) return { ok: false, error: "You are not enrolled in this course" };
 
   // Idempotent create: if a submission already exists, update it (resubmit).
   const existing = await db.submission.findFirst({
@@ -94,6 +97,6 @@ export async function submitAssignment(formData: FormData): Promise<SubmitResult
     : await db.submission.create({ data: { ...data, assignmentId, userId: user.id } });
 
   revalidatePath(`/instructor/grading`);
-  revalidatePath(`/dashboard/courses/${assignment.lesson.module.course.slug}`);
+  revalidatePath(`/dashboard/courses/${assignment.module.course.slug}`);
   return { ok: true, submissionId: submission.id };
 }

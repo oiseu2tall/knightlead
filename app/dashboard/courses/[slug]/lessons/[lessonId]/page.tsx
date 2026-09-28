@@ -1,17 +1,22 @@
 // /dashboard/courses/[slug]/lessons/[lessonId] — render a single
-// lesson, show assignment if present, allow marking complete.
+// lesson from a student's cohort curriculum, show the parent module's
+// assessments, and allow marking the lesson complete.
 
 import { auth } from "@/auth";
 import { db } from "@/lib/db";
 import { notFound } from "next/navigation";
 import Link from "next/link";
-import { Card, PageHeader, Badge } from "@/components/ui/Primitives";
+import { Card } from "@/components/ui/Primitives";
 import { Icon } from "@/components/ui/Icon";
 import { SubNav } from "@/components/layout/SubNav";
 import { Breadcrumb } from "@/components/layout/Breadcrumb";
-import { SubmissionForm } from "./SubmissionForm";
-import { AssignmentFileLinks } from "@/components/files/AssignmentFileLinks";
+import {
+  ModuleAssignmentsPanel,
+  type ModuleAssignmentView,
+} from "@/components/assignments/ModuleAssignmentsPanel";
 import { signToken } from "@/lib/storage";
+import { findLiveEnrollment } from "@/lib/auth-guard";
+import { getCohortCurriculum, findInCurriculum, isLessonReleased } from "@/lib/curriculum";
 import type { IconName } from "@/components/ui/Icon";
 
 const LEARN_TABS: { href: string; label: string; icon: IconName }[] = [
@@ -47,33 +52,48 @@ export default async function LessonPage({
           course: { select: { id: true, slug: true, title: true, instructorId: true } },
         },
       },
-      assignments: {
-        orderBy: { createdAt: "asc" },
-        take: 1,
-      },
+      // A lesson may carry several videos: a talk split into parts, a
+      // recording plus a demo. Ordered, not singular.
+      videos: { orderBy: { order: "asc" } },
     },
   });
   if (!lesson || lesson.module.course.slug !== slug) notFound();
 
-  // Enforce enrollment. A PENDING enrollment means the student can't
-  // access course content until a manager/admin activates it.
-  const enrollment = await db.enrollment.findUnique({
-    where: { userId_courseId: { userId, courseId: lesson.module.course.id } },
-  });
-  if (!enrollment || enrollment.status === "PENDING") notFound();
+  // Enforce enrollment. Access comes from an approved cohort seat: a
+  // PENDING seat means the student can't reach course content until a
+  // manager/admin activates it, and DROPPED/SUSPENDED seats are revoked.
+  const enrollment = await findLiveEnrollment(userId, lesson.module.course.id);
+  if (!enrollment) notFound();
+
+  // The seat also decides *which* lessons exist for this student. A
+  // cohort teaches its own plan, so a lesson outside the plan is not part
+  // of this intake even though it belongs to the course.
+  const curriculum = await getCohortCurriculum(enrollment.cohortId);
+  const inPlan = curriculum ? findInCurriculum(curriculum, lessonId) : undefined;
+  if (!inPlan) notFound();
+
+  // A scheduled lesson stays locked until its release time, and a locked
+  // lesson's content is never rendered.
+  if (!isLessonReleased(inPlan)) notFound();
 
   const completed = await db.lessonProgress.findUnique({
     where: { userId_lessonId: { userId, lessonId } },
   });
 
-  // Pull the user's most recent submission for this assignment (if any)
-  // so the form can pre-fill and surface grade/feedback.
-  const assignment = lesson.assignments[0] ?? null;
-  const submission = assignment
-    ? await db.submission.findFirst({
-        where: { assignmentId: assignment.id, userId },
+  // Assessments belong to the module, not to this lesson, so the student
+  // is shown the whole module's set rather than one arbitrarily chosen
+  // assignment.
+  const assignments = await db.assignment.findMany({
+    where: { moduleId: lesson.moduleId },
+    orderBy: { dueDate: "asc" },
+  });
+
+  const submissions = assignments.length
+    ? await db.submission.findMany({
+        where: { userId, assignmentId: { in: assignments.map((a) => a.id) } },
         orderBy: { submittedAt: "desc" },
         select: {
+          assignmentId: true,
           content: true,
           attachments: true,
           status: true,
@@ -83,14 +103,54 @@ export default async function LessonPage({
           gradedAt: true,
         },
       })
-    : null;
+    : [];
+  // A module may have more than one assignment; the latest submission per
+  // assignment is the one the form should pre-fill.
+  const submissionByAssignment = new Map<string, (typeof submissions)[number]>();
+  for (const s of submissions) {
+    if (!submissionByAssignment.has(s.assignmentId)) {
+      submissionByAssignment.set(s.assignmentId, s);
+    }
+  }
 
-  // Build signed download URLs for the assignment's attached files so
-  // the student can view/download them inline.
-  const assignmentFiles = (assignment?.attachments ?? []).map((key) => ({
-    key,
-    name: key.split("/").pop() ?? key,
-    url: `/api/files/download/${encodeURIComponent(key)}?t=${signToken(key)}`,
+  // Signed URLs for uploaded videos and assignment files. Assignment
+  // attachments are signed here rather than in the panel, because
+  // signToken needs node:crypto and the panel is a client component.
+  const assignmentViews: ModuleAssignmentView[] = assignments.map((assignment) => {
+    const submission = submissionByAssignment.get(assignment.id) ?? null;
+    return {
+      id: assignment.id,
+      title: assignment.title,
+      prompt: assignment.prompt,
+      dueDate: assignment.dueDate ? assignment.dueDate.toISOString() : null,
+      maxScore: assignment.maxScore,
+      files: assignment.attachments.map((key) => ({
+        key,
+        name: key.split("/").pop() ?? key,
+        url: `/api/files/download/${encodeURIComponent(key)}?t=${signToken(key)}`,
+      })),
+      submission: submission
+        ? {
+            content: submission.content,
+            attachments: submission.attachments,
+            status: submission.status,
+            score: submission.score,
+            feedback: submission.feedback,
+            submittedAt: submission.submittedAt.toISOString(),
+            gradedAt: submission.gradedAt ? submission.gradedAt.toISOString() : null,
+          }
+        : null,
+    };
+  });
+
+  const videos = lesson.videos.map((v) => ({
+    id: v.id,
+    title: v.title,
+    description: v.description,
+    durationMin: v.durationMin,
+    src: v.fileKey
+      ? `/api/files/download/${encodeURIComponent(v.fileKey)}?t=${signToken(v.fileKey)}`
+      : v.url,
   }));
 
   const IconName = lessonIconName(lesson.contentType);
@@ -115,7 +175,7 @@ export default async function LessonPage({
             <I className="h-3.5 w-3.5" />
             {lesson.contentType.toLowerCase().replace("_", " ")}
             <span aria-hidden>·</span>
-            Module {lesson.module.order}
+            {lesson.module.title}
             {completed && (
               <>
                 <span aria-hidden>·</span>
@@ -137,60 +197,44 @@ export default async function LessonPage({
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-4">
           <Card>
-            {lesson.videoUrl && (
-              <div className="mb-4 aspect-video w-full overflow-hidden rounded-lg border border-line bg-black">
-                <video src={lesson.videoUrl} controls className="h-full w-full" />
+            {videos.map((v) => (
+              <div key={v.id} className="mb-4 last:mb-0">
+                <div className="aspect-video w-full overflow-hidden rounded-lg border border-line bg-black">
+                  <video src={v.src ?? undefined} controls preload="metadata" className="h-full w-full">
+                    Your browser does not support video playback.
+                  </video>
+                </div>
+                <div className="mt-1.5 flex items-baseline justify-between gap-3">
+                  <p className="text-sm font-medium text-ink">{v.title}</p>
+                  {v.durationMin && (
+                    <span className="shrink-0 text-xs text-ink-muted">{v.durationMin} min</span>
+                  )}
+                </div>
+                {v.description && (
+                  <p className="mt-0.5 text-xs text-ink-muted">{v.description}</p>
+                )}
               </div>
-            )}
+            ))}
             {lesson.content && (
               <div
-                className="prose prose-sm max-w-none text-ink"
+                className={`prose prose-sm max-w-none text-ink ${videos.length > 0 ? "mt-4 border-t border-line pt-4" : ""}`}
                 // Content authored by instructors; rendered as text. For
                 // production, sanitize or render Markdown via a vetted
                 // library (e.g. react-markdown with rehype-sanitize).
                 dangerouslySetInnerHTML={{ __html: renderLessonContent(lesson.content) }}
               />
             )}
-            {!lesson.videoUrl && !lesson.content && (
+            {videos.length === 0 && !lesson.content && (
               <p className="text-sm text-ink-muted">No content for this lesson yet.</p>
             )}
           </Card>
 
-          {assignment && (
+          {assignmentViews.length > 0 && (
             <Card>
-              <div className="mb-3 flex flex-wrap items-start justify-between gap-2">
-                <div>
-                  <h2 className="text-lg font-semibold text-ink">Assignment</h2>
-                  <p className="mt-0.5 text-sm text-ink-muted">{assignment.title}</p>
-                </div>
-                {assignment.dueDate && (
-                  <span className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface-muted px-2.5 py-0.5 text-xs font-medium text-ink-muted">
-                    <Icon.Calendar className="h-3.5 w-3.5" />
-                    Due {assignment.dueDate.toLocaleDateString()}
-                  </span>
-                )}
-              </div>
-              <p className="whitespace-pre-wrap text-sm text-ink">{assignment.prompt}</p>
-              <AssignmentFileLinks files={assignmentFiles} />
-              <div className="mt-4 border-t border-line pt-4">
-                <SubmissionForm
-                  assignmentId={assignment.id}
-                  maxScore={assignment.maxScore}
-                  existing={
-                    submission
-                      ? {
-                          content: submission.content,
-                          attachments: submission.attachments,
-                          status: submission.status,
-                          score: submission.score,
-                          feedback: submission.feedback,
-                          submittedAt: submission.submittedAt.toISOString(),
-                          gradedAt: submission.gradedAt ? submission.gradedAt.toISOString() : null,
-                        }
-                      : null
-                  }
-                />
-              </div>
+              <ModuleAssignmentsPanel
+                moduleTitle={lesson.module.title}
+                assignments={assignmentViews}
+              />
             </Card>
           )}
         </div>
@@ -210,9 +254,9 @@ export default async function LessonPage({
             ) : (
               <>
                 <p className="mt-2 text-sm text-ink-muted">Not yet complete</p>
-                {assignment && submission && submission.status === "GRADED" && (
+                {submissions.some((s) => s.status === "GRADED") && (
                   <p className="mt-2 text-xs text-green-700">
-                    Assignment graded — lesson marked complete
+                    Assignment graded — this module&apos;s lessons marked complete
                   </p>
                 )}
               </>
@@ -228,16 +272,24 @@ export default async function LessonPage({
                   {lesson.contentType.toLowerCase().replace("_", " ")}
                 </dd>
               </div>
+              {videos.length > 0 && (
+                <div className="flex justify-between gap-2">
+                  <dt className="text-ink-muted">Videos</dt>
+                  <dd className="font-medium text-ink">{videos.length}</dd>
+                </div>
+              )}
               {lesson.durationMin ? (
                 <div className="flex justify-between gap-2">
                   <dt className="text-ink-muted">Duration</dt>
                   <dd className="font-medium text-ink">{lesson.durationMin} min</dd>
                 </div>
               ) : null}
-              {assignment && (
+              {assignments.length > 0 && (
                 <div className="flex justify-between gap-2">
-                  <dt className="text-ink-muted">Max score</dt>
-                  <dd className="font-medium text-ink">{assignment.maxScore}</dd>
+                  <dt className="text-ink-muted">Module work</dt>
+                  <dd className="font-medium text-ink">
+                    {assignments.length} assignment{assignments.length === 1 ? "" : "s"}
+                  </dd>
                 </div>
               )}
             </dl>

@@ -6,6 +6,7 @@ import { useOptimistic, useState, useTransition } from "react";
 import { Card, Badge } from "@/components/ui/Primitives";
 import { Button } from "@/components/ui/Button";
 import { Field, Textarea, Input } from "@/components/ui/Field";
+import { Icon } from "@/components/ui/Icon";
 import { gradeSubmission, returnSubmission } from "./actions";
 
 type SubmissionView = {
@@ -16,11 +17,13 @@ type SubmissionView = {
   status: string;
   submittedAt: Date;
   student: { id: string; name: string | null; email: string | null; image: string | null };
+  /** Files the student attached, with server-minted signed URLs. */
+  files: Array<{ key: string; name: string; url: string }>;
   assignment: {
     id: string;
     title: string;
     maxScore: number;
-    lessonTitle: string;
+    moduleTitle: string;
     courseTitle: string;
     courseSlug: string;
   };
@@ -78,7 +81,7 @@ export function GradingPanel({ submission }: { submission: SubmissionView }) {
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-ink">{submission.assignment.title}</h3>
           <p className="text-xs text-ink-muted">
-            {submission.assignment.courseTitle} · {submission.assignment.lessonTitle}
+            {submission.assignment.courseTitle} · {submission.assignment.moduleTitle}
           </p>
           <p className="mt-1 text-xs text-ink-muted">
             From {submission.student.name ?? submission.student.email} ·{" "}
@@ -105,6 +108,52 @@ export function GradingPanel({ submission }: { submission: SubmissionView }) {
       <div className="mt-3 rounded-md border border-line bg-surface-dim p-3 text-sm text-ink">
         <p className="whitespace-pre-wrap">{submission.content}</p>
       </div>
+
+      {submission.files.length > 0 && (
+        <div className="mt-3 space-y-2">
+          <p className="text-xs font-semibold uppercase tracking-wider text-ink-muted">
+            Submitted files ({submission.files.length})
+          </p>
+          <ul className="space-y-1.5">
+            {submission.files.map((f) => (
+              <li
+                key={f.key}
+                className="flex flex-wrap items-center gap-2 rounded-md border border-line bg-surface-dim px-3 py-2 text-xs"
+              >
+                <Icon.File className="h-4 w-4 shrink-0 text-ink-muted" />
+                <a
+                  href={f.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  title={f.name}
+                  className="min-w-0 flex-1 truncate text-ink hover:text-brand-500 hover:underline"
+                >
+                  {f.name}
+                </a>
+                <a
+                  href={f.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="inline-flex items-center gap-1 text-brand-500 hover:text-brand-600"
+                >
+                  <Icon.ExternalLink className="h-3.5 w-3.5" />
+                  View
+                </a>
+                <a
+                  // dl=1 makes the route set Content-Disposition so the browser
+                  // saves the file instead of trying to render it. The plain
+                  // `download` attribute is ignored for cross-origin responses.
+                  href={`${f.url}&dl=1`}
+                  className="inline-flex items-center gap-1 rounded-md border border-line bg-surface px-2 py-1 text-ink hover:bg-surface-dim"
+                >
+                  <Icon.File className="h-3.5 w-3.5" />
+                  Download
+                </a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
 
       <div className="mt-3 flex gap-2">
         <Button

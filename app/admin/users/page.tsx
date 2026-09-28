@@ -162,7 +162,7 @@ export default async function AdminUsersPage({
                        )}
                      </td>
                      <td className="py-3 pr-4 text-xs text-ink-muted">
-                       {u._count.enrollments} courses · {u._count.submissions} subs
+                        {u._count.enrollments} seats · {u._count.submissions} subs
                      </td>
                      <td className="py-3 pr-4 text-xs text-ink-muted">
                        {u.createdAt.toLocaleDateString()}

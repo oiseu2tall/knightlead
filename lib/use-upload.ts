@@ -19,6 +19,21 @@ type State =
   | { status: "done"; result: UploadResult }
   | { status: "error"; error: string };
 
+// Server error codes mapped to something worth showing a user. Anything
+// unrecognised falls back to the raw code rather than a blank message.
+const ERROR_MESSAGES: Record<string, string> = {
+  too_large: "That file is too large to upload.",
+  unsupported_type: "That file type isn't supported here.",
+  rate_limited: "Too many uploads — wait a moment and try again.",
+  unauthenticated: "Your session expired. Sign in and try again.",
+  missing_file: "No file was received.",
+  invalid_form_data: "The upload could not be read.",
+};
+
+function describeUploadError(code: string, status: number): string {
+  return ERROR_MESSAGES[code] ?? `Upload failed (${code || status})`;
+}
+
 export function useUpload() {
   const [state, setState] = useState<State>({ status: "idle" });
 
@@ -30,7 +45,7 @@ export function useUpload() {
       const res = await fetch("/api/files/upload", { method: "POST", body: fd });
       if (!res.ok) {
         const err = (await res.json().catch(() => ({}))) as { error?: string };
-        setState({ status: "error", error: err.error ?? `HTTP ${res.status}` });
+        setState({ status: "error", error: describeUploadError(err.error ?? "", res.status) });
         return null;
       }
       const result = (await res.json()) as UploadResult;

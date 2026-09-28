@@ -17,13 +17,28 @@ export default async function MyCourses() {
   const userId = session!.user.id;
   const role = session!.user.role;
 
+  // One row per seat, not per course: a student enrolled in two intakes of
+  // the same course gets two entries, each showing which cohort it belongs
+  // to. Dropped and suspended seats are kept so the student can see the
+  // outcome rather than having rows silently vanish.
   const enrollments = await db.enrollment.findMany({
     where: { userId },
     include: {
-      course: {
-        include: {
-          instructor: { select: { name: true } },
-          _count: { select: { modules: true } },
+      // The course comes through the cohort — that is the authoritative
+      // link, and it means an inconsistent denormalized courseId can never
+      // mislabel a student's seat.
+      cohort: {
+        select: {
+          id: true,
+          name: true,
+          startDate: true,
+          endDate: true,
+          course: {
+            include: {
+              instructor: { select: { name: true } },
+              _count: { select: { modules: true } },
+            },
+          },
         },
       },
     },
@@ -37,11 +52,17 @@ export default async function MyCourses() {
         status: e.status,
         progress: e.progress,
         enrolledAt: e.enrolledAt.toISOString(),
+        approvedAt: e.approvedAt?.toISOString() ?? null,
+        cohort: {
+          name: e.cohort.name,
+          startDate: e.cohort.startDate.toISOString(),
+          endDate: e.cohort.endDate.toISOString(),
+        },
         course: {
-          title: e.course.title,
-          slug: e.course.slug,
-          instructor: { name: e.course.instructor.name },
-          moduleCount: e.course._count.modules,
+          title: e.cohort.course.title,
+          slug: e.cohort.course.slug,
+          instructor: { name: e.cohort.course.instructor.name },
+          moduleCount: e.cohort.course._count.modules,
         },
       }))}
       role={role}

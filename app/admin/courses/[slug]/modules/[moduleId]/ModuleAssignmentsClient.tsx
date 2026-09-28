@@ -1,7 +1,7 @@
 "use client";
 
 // /admin/courses/[slug]/modules/[moduleId] — module detail with
-// lessons + assignments CRUD for MANAGER + ADMIN.
+// lessons, their videos, and module-level assessments for MANAGER + ADMIN.
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -14,19 +14,35 @@ import { SubNav } from "@/components/layout/SubNav";
 import { Breadcrumb } from "@/components/layout/Breadcrumb";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { LessonFormFields, type LessonFormData } from "./LessonForm";
+import { LessonVideoFormFields, type LessonVideoFormData } from "./LessonVideoForm";
 import { AssignmentFormFields, type AssignmentFormData } from "./AssignmentForm";
 import { AssignmentFileLinks } from "@/components/files/AssignmentFileLinks";
-import { deleteAssignment, deleteLesson } from "../../../../catalog/actions";
+import { deleteAssignment, deleteLesson, deleteLessonVideo } from "../../../../catalog/actions";
 
 type Lesson = {
   id: string;
   title: string;
   contentType: string;
   content: string | null;
-  videoUrl: string | null;
   durationMin: number | null;
   order: number;
   isFree: boolean;
+};
+
+type LessonVideo = {
+  id: string;
+  lessonId: string;
+  lessonTitle: string;
+  title: string;
+  description: string | null;
+  url: string | null;
+  fileKey: string | null;
+  fileName: string | null;
+  fileSize: number | null;
+  fileType: string | null;
+  durationMin: number | null;
+  order: number;
+  fileUrl: string | null;
 };
 
 type Assignment = {
@@ -40,12 +56,24 @@ type Assignment = {
   files: Array<{ key: string; name: string; url: string }>;
 };
 
+type Quiz = {
+  id: string;
+  title: string;
+  description: string | null;
+  timeLimit: number | null;
+  passingScore: number;
+  questionCount: number;
+  attemptCount: number;
+};
+
 type Module = {
   id: string;
   title: string;
   order: number;
   lessons: Lesson[];
   assignments: Assignment[];
+  quizzes: Quiz[];
+  videos: LessonVideo[];
 };
 
 type Course = { id: string; title: string; slug: string };
@@ -62,6 +90,8 @@ export default function ModuleAssignmentsClient({ course, module: mod, role: _ro
   const [editingLesson, setEditingLesson] = useState<Lesson | null>(null);
   const [createAssignmentOpen, setCreateAssignmentOpen] = useState(false);
   const [editingAssignment, setEditingAssignment] = useState<Assignment | null>(null);
+  const [createVideoFor, setCreateVideoFor] = useState<Lesson | null>(null);
+  const [editingVideo, setEditingVideo] = useState<LessonVideo | null>(null);
 
   const subNavItems = [
     { href: `/admin/courses/${course.slug}`, label: "Modules", icon: "Layers" as IconName },
@@ -76,10 +106,24 @@ export default function ModuleAssignmentsClient({ course, module: mod, role: _ro
       title: l.title,
       contentType: l.contentType,
       content: l.content ?? undefined,
-      videoUrl: l.videoUrl ?? undefined,
       durationMin: l.durationMin ?? undefined,
       order: l.order,
       isFree: l.isFree,
+    };
+  }
+
+  function videoToFormData(v: LessonVideo): LessonVideoFormData {
+    return {
+      id: v.id,
+      title: v.title,
+      description: v.description ?? undefined,
+      url: v.url ?? undefined,
+      fileKey: v.fileKey ?? undefined,
+      fileName: v.fileName ?? undefined,
+      fileSize: v.fileSize ?? undefined,
+      fileType: v.fileType ?? undefined,
+      durationMin: v.durationMin ?? undefined,
+      order: v.order,
     };
   }
 
@@ -93,6 +137,24 @@ export default function ModuleAssignmentsClient({ course, module: mod, role: _ro
       attachments: a.attachments,
     };
   }
+
+  function videosFor(lessonId: string) {
+    return mod.videos.filter((v) => v.lessonId === lessonId).sort((a, b) => a.order - b.order);
+  }
+
+  function nextVideoOrder(lessonId: string) {
+    const existing = videosFor(lessonId);
+    return existing.length === 0 ? 0 : Math.max(...existing.map((v) => v.order)) + 1;
+  }
+
+  const onDeleteVideo = async (v: LessonVideo) => {
+    if (!confirm(`Delete video "${v.title}"?`)) return;
+    const fd = new FormData();
+    fd.set("id", v.id);
+    const res = await deleteLessonVideo(fd);
+    if (!res.ok) { alert(res.error); return; }
+    router.refresh();
+  };
 
   return (
     <>
@@ -113,6 +175,8 @@ export default function ModuleAssignmentsClient({ course, module: mod, role: _ro
             <span>Module {mod.order}</span>
             <span>·</span>
             <span>{mod.lessons.length} lessons</span>
+            <span>·</span>
+            <span>{mod.videos.length} videos</span>
             <span>·</span>
             <span>{mod.assignments.length} assignments</span>
           </div>
@@ -146,59 +210,110 @@ export default function ModuleAssignmentsClient({ course, module: mod, role: _ro
         />
       ) : (
         <div className="kl-virtualize space-y-3 mb-8">
-          {mod.lessons.map((l) => (
-            <Card key={l.id} className="card-hover">
-              <div className="flex items-start gap-3">
-                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 font-semibold text-brand-700 dark:bg-brand-500/10 dark:text-brand-200">
-                  {l.order}
-                </div>
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-2">
-                    <p className="truncate text-sm font-semibold text-ink">{l.title}</p>
-                    {l.isFree && <Badge tone="success">Free</Badge>}
+          {mod.lessons.map((l) => {
+            const videos = videosFor(l.id);
+            return (
+              <Card key={l.id} className="card-hover">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 font-semibold text-brand-700 dark:bg-brand-500/10 dark:text-brand-200">
+                    {l.order}
                   </div>
-                  <p className="mt-1 text-xs text-ink-muted">
-                    {l.contentType.toLowerCase().replace("_", " ")}
-                    {l.durationMin ? ` · ${l.durationMin} min` : ""}
-                    {l.videoUrl ? " · has video" : ""}
-                  </p>
-                  {l.content && (
-                    <p className="mt-1 line-clamp-2 text-xs text-ink-muted">{l.content}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2">
-                  <DropdownMenu
-                    ariaLabel={`Actions for lesson ${l.title}`}
-                    items={[
-                      {
-                        label: "Edit",
-                        icon: <Icon.Edit className="h-4 w-4" />,
-                        onClick: () => setEditingLesson(l),
-                      },
-                      { kind: "separator" },
-                      {
-                        label: "Delete",
-                        icon: <Icon.Trash className="h-4 w-4" />,
-                        danger: true,
-                        onClick: async () => {
-                          if (!confirm(`Delete lesson "${l.title}"?`)) return;
-                          const fd = new FormData();
-                          fd.set("id", l.id);
-                          const res = await deleteLesson(fd);
-                          if (!res.ok) { alert(res.error); return; }
-                          router.refresh();
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="truncate text-sm font-semibold text-ink">{l.title}</p>
+                      {l.isFree && <Badge tone="success">Free</Badge>}
+                    </div>
+                    <p className="mt-1 text-xs text-ink-muted">
+                      {l.contentType.toLowerCase().replace("_", " ")}
+                      {l.durationMin ? ` · ${l.durationMin} min` : ""}
+                      {videos.length > 0 ? ` · ${videos.length} video${videos.length === 1 ? "" : "s"}` : ""}
+                    </p>
+                    {l.content && (
+                      <p className="mt-1 line-clamp-2 text-xs text-ink-muted">{l.content}</p>
+                    )}
+
+                    {videos.length > 0 && (
+                      <ul className="mt-3 space-y-1.5 border-l-2 border-line pl-3">
+                        {videos.map((v) => (
+                          <li key={v.id} className="flex items-center gap-2 text-xs">
+                            <Icon.Play className="h-3.5 w-3.5 shrink-0 text-ink-muted" />
+                            <span className="truncate text-ink">{v.title}</span>
+                            <span className="shrink-0 text-ink-muted">
+                              {v.durationMin ? `${v.durationMin} min` : v.url ? "link" : "file"}
+                            </span>
+                            <span className="ml-auto flex shrink-0 items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => setEditingVideo(v)}
+                                className="text-ink-muted hover:text-brand-600"
+                                aria-label={`Edit video ${v.title}`}
+                              >
+                                <Icon.Edit className="h-3.5 w-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => onDeleteVideo(v)}
+                                className="text-ink-muted hover:text-red-600"
+                                aria-label={`Delete video ${v.title}`}
+                              >
+                                <Icon.Trash className="h-3.5 w-3.5" />
+                              </button>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <DropdownMenu
+                      ariaLabel={`Actions for lesson ${l.title}`}
+                      items={[
+                        {
+                          label: "Edit lesson",
+                          icon: <Icon.Edit className="h-4 w-4" />,
+                          onClick: () => setEditingLesson(l),
                         },
-                      },
-                    ]}
-                  />
+                        {
+                          label: "Add video",
+                          icon: <Icon.Plus className="h-4 w-4" />,
+                          onClick: () => setCreateVideoFor(l),
+                        },
+                        { kind: "separator" },
+                        {
+                          label: "Delete",
+                          icon: <Icon.Trash className="h-4 w-4" />,
+                          danger: true,
+                          onClick: async () => {
+                            if (!confirm(`Delete lesson "${l.title}"? Its videos will also be removed.`)) return;
+                            const fd = new FormData();
+                            fd.set("id", l.id);
+                            const res = await deleteLesson(fd);
+                            if (!res.ok) { alert(res.error); return; }
+                            router.refresh();
+                          },
+                        },
+                      ]}
+                    />
+                  </div>
                 </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       )}
 
-      {mod.assignments.length > 0 && (
+      <h2 className="mb-3 mt-2 text-sm font-semibold uppercase tracking-[0.12em] text-ink-muted">
+        Assessments
+      </h2>
+
+      {mod.assignments.length === 0 && mod.quizzes.length === 0 ? (
+        <EmptyState
+          icon="Assignment"
+          title="No assessments yet"
+          description="Assignments and quizzes belong to this module, covering its lessons as a whole."
+          action={{ label: "Add assignment", onClick: () => setCreateAssignmentOpen(true) }}
+        />
+      ) : (
         <div className="kl-virtualize space-y-3">
           {mod.assignments.map((a) => (
             <Card key={a.id} className="card-hover">
@@ -260,6 +375,35 @@ export default function ModuleAssignmentsClient({ course, module: mod, role: _ro
               </div>
             </Card>
           ))}
+
+          {mod.quizzes.map((q) => (
+            <Card key={q.id} className="card-hover">
+              <div className="flex items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-brand-50 font-semibold text-brand-700 dark:bg-brand-500/10 dark:text-brand-200">
+                  <Icon.Quiz className="h-5 w-5" />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold text-ink">{q.title}</p>
+                  {q.description && (
+                    <p className="mt-1 line-clamp-2 text-xs text-ink-muted">{q.description}</p>
+                  )}
+                  <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-muted">
+                    <span>{q.questionCount} question{q.questionCount === 1 ? "" : "s"}</span>
+                    <span>·</span>
+                    <span>Pass at {q.passingScore}%</span>
+                    {q.timeLimit != null && (
+                      <>
+                        <span>·</span>
+                        <span>{Math.round(q.timeLimit / 60)} min limit</span>
+                      </>
+                    )}
+                    <span>·</span>
+                    <span>{q.attemptCount} attempt{q.attemptCount === 1 ? "" : "s"}</span>
+                  </div>
+                </div>
+              </div>
+            </Card>
+          ))}
         </div>
       )}
 
@@ -295,17 +439,50 @@ export default function ModuleAssignmentsClient({ course, module: mod, role: _ro
         )}
       </Modal>
 
+      {/* Lesson video modals */}
+      <Modal
+        open={createVideoFor !== null}
+        onClose={() => setCreateVideoFor(null)}
+        title="Add video"
+        description={createVideoFor ? `Add a video to "${createVideoFor.title}".` : undefined}
+        widthClass="max-w-xl"
+      >
+        {createVideoFor && (
+          <LessonVideoFormFields
+            lessonId={createVideoFor.id}
+            nextOrder={nextVideoOrder(createVideoFor.id)}
+            onDone={() => setCreateVideoFor(null)}
+          />
+        )}
+      </Modal>
+
+      <Modal
+        open={editingVideo !== null}
+        onClose={() => setEditingVideo(null)}
+        title="Edit video"
+        description={editingVideo?.title}
+        widthClass="max-w-xl"
+      >
+        {editingVideo && (
+          <LessonVideoFormFields
+            lessonId={editingVideo.lessonId}
+            nextOrder={editingVideo.order}
+            initial={videoToFormData(editingVideo)}
+            onDone={() => setEditingVideo(null)}
+          />
+        )}
+      </Modal>
+
       {/* Assignment modals */}
       <Modal
         open={createAssignmentOpen}
         onClose={() => setCreateAssignmentOpen(false)}
         title="Add assignment"
-        description="Attach this assignment to a lesson in this module."
+        description="This assignment covers the module as a whole."
         widthClass="max-w-xl"
       >
         <AssignmentFormFields
-          courseId={course.id}
-          lessons={mod.lessons}
+          moduleId={mod.id}
           onDone={() => setCreateAssignmentOpen(false)}
         />
       </Modal>
@@ -319,8 +496,7 @@ export default function ModuleAssignmentsClient({ course, module: mod, role: _ro
       >
         {editingAssignment && (
           <AssignmentFormFields
-            courseId={course.id}
-            lessons={mod.lessons}
+            moduleId={mod.id}
             initial={assignmentToFormData(editingAssignment)}
             onDone={() => setEditingAssignment(null)}
           />

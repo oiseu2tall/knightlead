@@ -18,9 +18,12 @@ export default async function InstructorDashboard() {
     db.submission.count({
       where: {
         status: "SUBMITTED",
-        ...(isAdmin ? {} : { assignment: { lesson: { module: { course: { instructorId: userId } } } } }),
+        ...(isAdmin ? {} : { assignment: { module: { course: { instructorId: userId } } } }),
       },
     }),
+    // Counts seats, not distinct students: a student enrolled in two
+    // intakes of the same course holds two enrollment rows. The card is
+    // labelled "seats" for that reason.
     db.enrollment.count({
       where: {
         ...(isAdmin ? {} : { course: { instructorId: userId } }),
@@ -61,7 +64,9 @@ export default async function InstructorDashboard() {
               Enrollments
             </div>
             <div className="mt-2 text-2xl font-bold text-ink">{cohortCount}</div>
-            <div className="mt-1 text-xs text-ink-muted">Active students</div>
+            <div className="mt-1 text-xs text-ink-muted">
+              Seats across your cohorts
+            </div>
           </Link>
         </Card>
       </div>

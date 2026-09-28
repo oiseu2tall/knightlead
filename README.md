@@ -12,10 +12,11 @@ A full-stack Learning Management System for cohort-based bootcamps. Built on **N
 - 📚 **Courses & lessons** — modules, ordered lessons, per-user completion tracking with auto-recomputed progress (`LessonProgress` model)
 - 📝 **Polished assignment-submission flow** — pre-fills from existing submissions, shows grade + feedback inline, character counter, Cmd/Ctrl+Enter shortcut, drag-and-drop multi-file upload, 5-file cap
 - 📊 **Instructor grading queue** — filter by status, score cap, optimistic UI, audit trail, scoped to the instructor's own courses
-- 🧑‍🤝‍🧑 **Instructor cohorts** — read-only view of cohorts connected to the instructor's courses
+- 🧑‍🤝‍🧑 **Instructor cohorts** — read-only view of the cohorts belonging to the instructor's courses, grouped by course
 - 🛠️ **Catalog management** — MANAGER + ADMIN can create/edit cohorts, courses, and modules via modal-driven forms; attach PDF/PowerPoint files to modules
 - 🏷️ **Role filter chips + live search** — every list page (cohorts, courses, enrollments, users) has a debounced search input and status filter chips
-- 🔐 **Enrollment approval** — when a student self-enrolls, the enrollment starts in `PENDING` and they can't access modules, lessons, or assignments until a manager or admin activates it. Staff-enrolled students are created `ACTIVE` by default. MANAGER + ADMIN can approve pending enrollments from the Enrollments page.
+- 🎓 **Cohort-first enrollment** — students enroll into a *cohort* (a dated intake of one course), never into a course directly. One course can have many cohorts, so the same student can hold a seat in several intakes of the same course. Each cohort has an optional seat cap and an open/closed switch for self-enrollment.
+- 🔐 **Enrollment approval** — a self-enrollment starts in `PENDING` and unlocks nothing until a manager or admin approves it; the approver and timestamp are recorded. Students can cancel their own pending request; managers can approve, decline, or move a seat to another cohort. Staff-placed students are created `ACTIVE` immediately.
 - 🔒 **Admin panel** — user search, role filter chips, pagination, inline role change (with audit log), per-user detail with enrollments / submissions / audit timeline, suspend/activate toggle. ADMIN only.
 - 📎 **Local file storage** — HMAC-signed token URLs, MIME allowlist, 50MB cap, path-traversal guards, S3-shaped interface for easy swap
 - ✉️ **Email verification** — OTP-style (8-char code, no prefix), Nodemailer via Gmail SMTP, fallback chain (Gmail → Ethereal → console), auto-redirect to `/verify-email/pending` until verified
@@ -33,8 +34,10 @@ The four roles have **explicit, non-hierarchical** capabilities — ADMIN does *
 
 | Capability                                  | STUDENT | INSTRUCTOR | MANAGER | ADMIN |
 |---------------------------------------------|:-------:|:----------:|:-------:|:-----:|
-| Enroll in a course (self)                   |    ✅   |     ❌     |    ❌   |  ❌   |
-| Enroll a student in a course / cohort       |    ❌   |     ❌     |    ✅   |  ✅   |
+| Request a seat in an open cohort (self)     |    ✅   |     ❌     |    ❌   |  ❌   |
+| Cancel own **pending** seat request         |    ✅   |     ❌     |    ❌   |  ❌   |
+| Place a student in a cohort                 |    ❌   |     ❌     |    ✅   |  ✅   |
+| Move a seat to another cohort               |    ❌   |     ❌     |    ✅   |  ✅   |
 | View "My courses"                           |    ✅   |     —¹     |   —¹    |  —¹   |
 | Mark lessons complete / submit assignments  |    ✅   |     ❌     |    ❌   |  ❌   |
 | Grade submissions (own courses)             |    ❌   |     ✅     |    ❌   |  ✅²   |
@@ -42,19 +45,18 @@ The four roles have **explicit, non-hierarchical** capabilities — ADMIN does *
 | Manage cohorts (create / edit / delete)     |    ❌   |     ❌     |    ✅   |  ✅   |
 | Manage courses (create / edit / publish)    |    ❌   |     ❌     |    ✅   |  ✅   |
 | Manage modules (create / edit / delete)     |    ❌   |     ❌     |    ✅   |  ✅   |
-| Approve / activate pending enrollments      |    ❌   |     ❌     |    ✅   |  ✅   |
+| Approve / decline pending enrollments       |    ❌   |     ❌     |    ✅   |  ✅   |
 | User management (search, role change)       |    ❌   |     ❌     |    ❌   |  ✅   |
 | Suspend / activate user accounts            |    ❌   |     ❌     |    ❌   |  ✅   |
 | Promote / demote other users                |    ❌   |     ❌     |    ❌   |  ✅   |
 | Self-demote                                 |    —    |     —      |    —    |  ❌   |
-| Self-suspend                                |    —    |     —      |    —    |  ❌   |
 
 ¹ Staff accounts don't take courses, so the "My courses" page is empty by design — the catalog at `/dashboard/courses/browse` is shown in read-only mode instead.
 ² Admins can grade any submission; instructors are scoped to the courses they teach.
 
 **Two different "enroll" rules — not a typo:**
-- **`enrollInCourse` (self-enroll):** only `STUDENT` may call it. The catalog at `/dashboard/courses/browse` shows the Enroll button only to students. Enforced by `canEnroll()` in [lib/auth-guard.ts](lib/auth-guard.ts).
-- **`staffEnrollStudent` (enroll-on-behalf-of):** `MANAGER` and `ADMIN` can enroll any `STUDENT` in any course, optionally tagged with a cohort. The page at `/admin/enrollments` is the only UI; the server action refuses to enroll non-students, and records an `STAFF_ENROLL_STUDENT` (or `STAFF_REASSIGN_COHORT`) entry in the audit log. Enforced by `canEnrollOthers()` plus a runtime role check on the target user.
+- **`enrollInCohort` (self-enroll):** only `STUDENT` may call it. The catalog at `/dashboard/courses/browse` shows the cohort picker only to students. The request is refused if the course is unpublished, the cohort is `isOpen: false`, or the cohort is at `capacity`. Enforced by `canEnroll()` in [lib/auth-guard.ts](lib/auth-guard.ts).
+- **`staffEnrollStudent` (enroll-on-behalf-of):** `MANAGER` and `ADMIN` place any `STUDENT` into any cohort. They pick **only a cohort** — the course is derived from it, so the two can never disagree. The action refuses to enroll non-students, honours `capacity`, ignores `isOpen` (staff explicitly override the intake window), creates the seat `ACTIVE`, and records `approvedById`. `/admin/enrollments` is the only UI. Enforced by `canEnrollOthers()` plus a runtime role check on the target user.
 
 **Sidebar sections by role** (rendered automatically by the global `<DashboardShell>`):
 
@@ -66,6 +68,106 @@ The four roles have **explicit, non-hierarchical** capabilities — ADMIN does *
 | `ADMIN`        | Learn + Teach + Manage + Administer (Users)                                      |
 
 **Why the explicit matrix?** Managers and admins curate the catalog. *Self-enrolling* would put them on grading rosters and progress charts, polluting the instructor's view. *Enrolling others* is the legitimate staff workflow that solves the same problem. The split is enforced in the UI (separate buttons / pages) and in the server actions.
+
+---
+
+## The catalog model: courses → cohorts → enrollments
+
+Enrollment is cohort-first. The chain is:
+
+```
+Course  ──has many──▶  Cohort  ──has many──▶  Enrollment  ──▶  Student
+(intake)              (a seat)                (one per student per cohort)
+```
+
+- A **Cohort is an intake of exactly one course** and is *required* to have a `courseId`. It carries the dates, an optional `capacity`, and an `isOpen` flag that gates self-enrollment.
+- An **Enrollment is a seat in exactly one cohort** and is *required* to have a `cohortId`. Uniqueness is `@@unique([userId, cohortId])` — **not** `[userId, courseId]`. This is the change that lets one student take the same course twice, in two different intakes.
+- `Enrollment.courseId` is a **denormalized copy** of `cohort.courseId`. It exists so course-level queries ("which courses is this student active in?") stay one indexed read instead of a join through `Cohort`. Every server action writes it from the cohort rather than trusting the form, and the migration reconciles any drift.
+- **Course access is derived from an approved seat**, never from a course-level row. `getCourseAccess()` in [lib/auth-guard.ts](lib/auth-guard.ts) is the single source of truth for that decision, and resolves to one of three states the UI renders differently:
+  - `live` — an `ACTIVE`/`COMPLETED` seat; content is unlocked
+  - `pending` — a self-enrollment awaiting approval
+  - `none` — no seat in any cohort of the course
+
+  A live seat **wins over** a pending one, so a student approved into one intake can start working even while a second request sits in the queue.
+
+### Guard rules
+
+| Rule | Enforced in |
+|---|---|
+| A cohort always belongs to one course | `Cohort.courseId` `NOT NULL` + FK `ON DELETE CASCADE` |
+| A seat always belongs to one cohort | `Enrollment.cohortId` `NOT NULL` + FK `ON DELETE CASCADE` |
+| One seat per student per cohort | `@@unique([userId, cohortId])` |
+| Moving a **populated** cohort to another course | Refused — it would silently change which course every enrolled student can reach |
+| Lowering `capacity` below occupied seats | Refused — it would put the cohort permanently over its own limit |
+| Deleting a cohort with seats | Refused (the FK would cascade, orphaning students) |
+| Deleting a course that still has cohorts | Refused (cohorts and their seats would cascade away) |
+| Self-enrolling in a closed or full cohort | Refused in `enrollInCohort` |
+| Staff enrolling into a closed cohort | Allowed — staff override `isOpen`; `capacity` still applies |
+| Withdrawing a seat that is already `ACTIVE` | Refused — that relationship ends via a manager or by completing the course |
+
+### Migrating from the old model
+
+`prisma/migrations/20260928120000_cohort_course_rekey/` is written to be **non-destructive** — it backfills rather than drops, and it refuses to guess:
+
+1. Adds `cohorts.courseId` as nullable, then backfills it from the enrollments already pointing at each cohort. If a cohort's enrollments span more than one course, the migration **raises and stops** rather than picking a winner.
+2. For cohorts with no enrollments to infer from, it auto-assigns the sole course only when the catalog holds exactly one; otherwise it **stops** and asks for a human.
+3. Makes `cohorts.courseId` `NOT NULL` and re-points the FK to `ON DELETE CASCADE`.
+4. Creates a closed "(Legacy Intake)" cohort for any course that still has course-level enrollments, so nothing has to be invented or dropped.
+5. **Deduplicates** before adding the new unique key, keeping the most advanced row per `(userId, cohortId)` so a `COMPLETED` student is never silently downgraded or resurrected from `DROPPED`.
+6. Makes `enrollments.cohortId` `NOT NULL` and switches that FK to `ON DELETE CASCADE`.
+7. Adds `approvedAt` / `approvedById`, backfilling `approvedAt = enrolledAt` for rows that were already `ACTIVE`/`COMPLETED` (those seats predate approval tracking); `PENDING` rows deliberately stay unapproved.
+8. Re-aligns every `enrollments.courseId` with its cohort, swaps the unique index, and adds the cohort/status indexes.
+
+**Verify the result:** `npx prisma migrate status` should report no pending migrations.
+
+---
+
+## The curriculum model: course body vs. cohort plan
+
+A course defines the **body of content**; a cohort defines **what that intake delivers**. Those are deliberately separate concerns, because the same course is taught repeatedly and each run differs.
+
+```
+Course ──▶ Module ──▶ Lesson ──▶ LessonVideo (many, ordered)
+             │
+             ├──▶ Assignment (module-level, graded evidence)
+             └──▶ Quiz       (module-level, questions + attempts)
+
+Cohort ──▶ CohortModule (ordered — which modules this intake delivers)
+       └──▶ CohortLesson (ordered — which lessons, and when they release)
+```
+
+- **Assessments belong to a module, not a lesson.** A module is the unit of work; its lessons are the material, and the assignment/quiz is the evidence that it was covered. `Assignment.moduleId` and `Quiz.moduleId` are required, so the owning course is two hops away (`assignment.module.course`) instead of three. Grading a module's assignment marks that module's lessons complete.
+- **A lesson carries many videos** (`LessonVideo`, ordered by `@@unique([lessonId, order])`). Each video is sourced from *either* an external URL *or* an uploaded file, never both, so the player never has to guess. The old single `Lesson.videoUrl` was migrated into `LessonVideo` before being dropped.
+- **A cohort's plan is additive and optional.** With no `CohortLesson` rows the cohort teaches the whole course in course order; once any row exists the plan becomes authoritative, so a lesson it leaves out is genuinely not taught.
+- **A plan entry can be gated.** `releaseAt` holds a lesson back until a given moment; the lesson is listed to students as locked and its content is not served until then. Free preview lessons ignore the gate.
+
+`getCohortCurriculum()`, `getInPlanModuleIds()`, `findSeatTeachingLesson()`, and `findSeatTeachingModule()` in [lib/curriculum.ts](lib/curriculum.ts) are the single source of truth for "what does this seat teach". The course page, the lesson page, submission, and lesson completion all route through them, so the rules can't drift between call sites.
+
+### Ordering under a unique index
+
+`Lesson`, `LessonVideo`, `CohortLesson`, and `CohortModule` all carry an `order` guarded by a composite unique key. Writing a row into the middle of a run cannot be done with a bare increment — Postgres checks uniqueness per row as it writes, so `updateMany({ increment: 1 })` raises a duplicate-key error mid-statement. Every insert and reposition therefore parks the conflicting block above the valid range (orders are capped at 999), then relocates rows one at a time in ascending order so each slot is vacated before it is filled. Curriculum reordering uses a neighbour **swap** instead, which touches only two rows.
+
+### Guard rules
+
+| Rule | Enforced in |
+|---|---|
+| A cohort's plan only references its own course's lessons | Refused in `addCohortLesson` — a cross-course row would corrupt the curriculum |
+| A video has a source, and only one kind | Refused in `upsertLessonVideo` when neither or both of URL/file are given |
+| A lesson is never credited against a cohort that doesn't teach it | `findSeatTeachingLesson` — a cohort *with* a plan is authoritative |
+| Progress is written only to a live seat | `recomputeProgress` returns `null` for `PENDING` seats |
+| A locked lesson's content is not served | `isLessonReleased` gate on both the course and lesson pages |
+| Video uploads | MIME allowlist (mp4/webm/ogg/quicktime) and a 500 MB cap, versus 50 MB for documents |
+
+### Migrating from the old model
+
+`prisma/migrations/20260928150000_module_assessments_videos_cohort_curriculum/` preserves every existing row and refuses to guess:
+
+1. Creates `lesson_videos` and copies each non-empty `Lesson.videoUrl` across as an order-0 `LessonVideo` **before** dropping the column, so no lesson silently loses its video.
+2. Creates `cohort_lessons` and `cohort_modules`, then seeds every cohort with its course's lessons and modules in course order — paired through the cohort's own `courseId`, so a cross-course link is impossible by construction. A cohort can then be reordered, trimmed, or cleared.
+3. Adds a nullable `moduleId` to `assignments` and `quizzes`, and **raises and stops** if any assessment's lesson has no owning module, rather than orphaning it.
+4. Backfills `moduleId` from the lesson's module, sets both `NOT NULL`, and swaps the foreign keys and indexes from lesson to module.
+
+`prisma/migrations/20260928133541_module_assessments_videos_cohort_curriculum/` is a separate one-line fix (`enrollments.status` default) for pre-existing drift left by the cohort migration above.
 
 ---
 
@@ -206,25 +308,30 @@ app/
     page.tsx                    Stats + continue-learning hero
     assignments/{page,actions}.tsx
     courses/
-      page.tsx                  "My courses" — enrolled only
-      browse/{page,EnrollButton}.tsx  Catalog; enroll CTA is STUDENT-only
-      [slug]/page.tsx           Course modules + lesson list
-      [slug]/lessons/[lessonId] Lesson view, mark-complete, assignment form
+      page.tsx                  "My courses" — one card per seat, labelled with its cohort
+      browse/{page,EnrollButton}.tsx  Catalog; cohort picker is STUDENT-only
+      [slug]/page.tsx           The seat's cohort curriculum: modules, lessons, module work
+      [slug]/lessons/[lessonId] Lesson view — all its videos, the module's assignments, mark-complete
     CoursesTabsClient.tsx       Shared learn tabs + search
   instructor/                   Role-gated (INSTRUCTOR | ADMIN) — uses <AuthedShell>
     layout.tsx                 <AuthedShell allowedRoles={["INSTRUCTOR","ADMIN"]}>
-    cohorts/page.tsx            Read-only — cohorts the instructor teaches into
+    cohorts/page.tsx            Read-only — cohorts of the instructor's courses, grouped by course
     grading/                    Role-scoped queue + optimistic grading
       {page, GradingPanel, actions}.tsx
   admin/                        Role-gated (MANAGER | ADMIN) — uses <AuthedShell>
     layout.tsx                 <AuthedShell allowedRoles={["MANAGER","ADMIN"]}>
     page.tsx                    Catalog hub (links to enrollments / cohorts / courses / users)
-    catalog/actions.ts          Shared upsert/delete + staffEnrollStudent
-    enrollments/                MANAGER + ADMIN — enroll a student
+    catalog/actions.ts          Shared upsert/delete + staffEnrollStudent + approve/reject/move
+                               + lesson/video CRUD + cohort curriculum (seed/add/remove/move)
+    enrollments/                MANAGER + ADMIN — place a student in a cohort
     cohorts/                    MANAGER + ADMIN — list, create, edit, delete
+      [cohortId]/page.tsx       Curriculum editor — this intake's ordered lesson plan
+      [cohortId]/CohortCurriculumClient.tsx
     courses/                    MANAGER + ADMIN — list, create, edit, delete
-      [slug]/page.tsx           Module list for a course
+      [slug]/page.tsx           Module list + this course's cohorts
       [slug]/ModuleForm.tsx     Add / delete modules (supports PDF/PowerPoint upload)
+      [slug]/modules/[moduleId] Module detail: lessons, per-lesson videos, assessments
+        LessonVideoForm.tsx      Add / edit one video (URL or upload — never both)
     users/                      ADMIN only
       page.tsx                  Search, role filter, pagination, inline role change
       RoleSelect.tsx            Client component with optimistic role update
@@ -256,9 +363,16 @@ components/
 
 lib/
   auth-guard.ts                 requireUser / requireRole / requireRoleOrRedirect / withAuth
-                                + canEnroll / canEnrollOthers / canManageCatalog / canManageUsers / canGrade
+                                 + canEnroll / canEnrollOthers / canManageCatalog / canManageUsers / canGrade
+                                 + getCourseAccess / findLiveEnrollment / cohortAvailability
+                                 (cohort-aware course access — the single source of truth)
+  curriculum.ts                  getCohortCurriculum / getInPlanModuleIds
+                                 + findSeatTeachingLesson / findSeatTeachingModule
+                                 + isLessonReleased / recomputeProgress
+                                 (what a seat is taught — the single source of truth)
   db.ts                         Prisma singleton (hot-reload safe)
   storage.ts                    Local-disk file store + HMAC-signed tokens
+                                 (50MB documents, 500MB video)
   rate-limit.ts                 Postgres sliding-window rate limiter
   email-verification.ts         OTP code issue/consume (single-use, 15-min TTL)
   mailer.ts                     Pluggable transport (Gmail SMTP → Ethereal → console)
@@ -271,9 +385,12 @@ prisma/
                                 LessonProgress, Assignment, Submission, Quiz,
                                 QuizQuestion, QuizAttempt, Announcement, Certificate,
                                 AuditLog, RateLimitEvent)
-  seed.ts                       Dev seed — one verified user per role (idempotent)
+  seed.ts                       Dev seed — one verified user per role, plus one course
+                                 with two cohorts and a student holding a seat in each
+                                 (idempotent)
   migrations/                   SQL migrations (incl. add_manager_role for MANAGER
-                                enum + cohort/course managerId FKs)
+                                 enum + cohort/course managerId FKs, and
+                                 cohort_course_rekey for the cohort-first model)
 .env.example                    Full env-var reference
 ```
 
@@ -332,10 +449,10 @@ Lists that can grow arbitrarily (recent enrollments, all cohorts, all courses, a
 - **Authorization** — re-checked inside every Server Action (`requireRole`) and in `/admin`, `/instructor`, and `/dashboard` layouts
 - **Capability checks** — every privileged operation goes through an explicit `can…()` helper in [lib/auth-guard.ts](lib/auth-guard.ts). The role matrix is the source of truth, not the role hierarchy: e.g. ADMIN does NOT inherit the right to enroll or teach.
 - **Input** — Zod at every boundary (forms, route handlers, server actions)
-- **Uploads** — MIME allowlist, 50MB cap, HMAC-signed token URLs, files live outside `/public`
+- **Uploads** — MIME allowlist, 50MB cap for documents/images and 500MB for video, HMAC-signed token URLs, files live outside `/public`
 - **Headers** — `X-Content-Type-Options: nosniff`
 - **Rate limits** — per-IP and per-user buckets for login, register, upload, grading, verification resend, role changes, catalog edits, enrollment
-- **Audit log** — grade actions, role changes, cohort/course/module edits, and **both** self-enrollments and staff-initiated enrollments are recorded with actor and target
+- **Audit log** — grade actions, role changes, cohort/course/module edits, seat moves, and **both** self-enrollments and staff-initiated enrollments are recorded with actor and target. Approvals additionally record `approvedAt` / `approvedById` on the enrollment itself.
 - **Self-demotion guard** — admins cannot demote themselves
 - **CSRF** — server actions use Auth.js's built-in action signature; sign-out goes through a server action
 

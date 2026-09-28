@@ -30,6 +30,7 @@ export type Course = {
   isPublished: boolean;
   moduleCount: number;
   enrollmentCount: number;
+  cohortCount: number;
 };
 
 type Props = {
@@ -243,7 +244,9 @@ function CourseCard({
                 label: "Delete",
                 icon: <Icon.Trash className="h-4 w-4" />,
                 danger: true,
-                disabled: course.enrollmentCount > 0,
+                // Cohorts cascade with the course, and a course with any
+                // cohort or seat attached can't be deleted at all.
+                disabled: course.cohortCount > 0 || course.enrollmentCount > 0,
                 onClick: async () => {
                   if (!confirm(`Delete "${course.title}"? This cannot be undone.`)) return;
                   const fd = new FormData();
@@ -289,7 +292,10 @@ function CourseCard({
           </span>
           <span className="inline-flex items-center gap-1">
             <Icon.Group className="h-4 w-4" />
-            {course.enrollmentCount}
+            {course.cohortCount} {course.cohortCount === 1 ? "cohort" : "cohorts"}
+          </span>
+          <span className="inline-flex items-center gap-1">
+            {course.enrollmentCount} {course.enrollmentCount === 1 ? "seat" : "seats"}
           </span>
         </div>
         <Link
