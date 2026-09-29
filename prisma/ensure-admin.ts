@@ -38,6 +38,32 @@ function hostOf(url: string): string {
   }
 }
 
+/**
+ * Connect, retrying briefly. Build hosts routinely have a cold or
+ * restricted network path to the database, and a single failed attempt at
+ * boot is usually a blip rather than a real outage. Throws the last error
+ * so the caller decides whether that is fatal.
+ */
+async function connectWithRetry(db: PrismaClient, attempts = 3): Promise<void> {
+  let last: unknown;
+  for (let i = 1; i <= attempts; i++) {
+    try {
+      await db.$connect();
+      return;
+    } catch (e) {
+      last = e;
+      if (i < attempts) {
+        const waitMs = i * 2_000;
+        console.warn(
+          `[bootstrap-admin] connection attempt ${i}/${attempts} failed, retrying in ${waitMs / 1000}s`,
+        );
+        await new Promise((r) => setTimeout(r, waitMs));
+      }
+    }
+  }
+  throw last;
+}
+
 async function main() {
   // No DATABASE_URL means this build isn't wired to a database at all
   // (typecheck-only CI, a docs build). Skipping is correct; failing would
@@ -49,16 +75,26 @@ async function main() {
 
   const db = new PrismaClient();
   try {
-    await db.$connect();
+    await connectWithRetry(db);
   } catch (e) {
-    // A reachable-but-unreachable database is a real deployment problem,
-    // so fail the build rather than shipping an admin-less release.
-    console.error(
-      "[bootstrap-admin] could not reach the database:\n" +
+    // Deliberately NOT fatal by default. This runs from `prebuild`, so
+    // failing here blocks every deploy for an operational reason that has
+    // nothing to do with the code being shipped — a build-host network
+    // restriction, a pooler blip, a database maintenance window. The
+    // bootstrap is a convenience; the app itself does not depend on it,
+    // and an admin that already exists stays in place regardless.
+    // Opt in to hard failure for pipelines that must guarantee the account.
+    if (process.env.REQUIRE_BOOTSTRAP_ADMIN === "true") {
+      throw e;
+    }
+    console.warn(
+      "[bootstrap-admin] WARNING: could not reach the database; continuing.\n" +
         `${e instanceof Error ? e.message : String(e)}\n` +
-        "Apply migrations first: npx prisma migrate deploy",
+        "The admin account was NOT verified for this build. To make this fatal,\n" +
+        "set REQUIRE_BOOTSTRAP_ADMIN=true. To fix it, run: npx prisma migrate deploy",
     );
-    process.exit(1);
+    await db.$disconnect();
+    return;
   }
 
   try {
