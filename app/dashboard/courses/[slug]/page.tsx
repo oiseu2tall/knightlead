@@ -11,9 +11,10 @@ import { SubNav } from "@/components/layout/SubNav";
 import { Breadcrumb } from "@/components/layout/Breadcrumb";
 import { Icon, type IconName } from "@/components/ui/Icon";
 import { signToken } from "@/lib/storage";
-import { getCourseAccess } from "@/lib/auth-guard";
-import { getCohortCurriculum, isLessonReleased } from "@/lib/curriculum";
+import { getCourseAccess, canPreviewCourseContent } from "@/lib/auth-guard";
+import { getCohortCurriculum, getCourseCurriculum, isLessonReleased } from "@/lib/curriculum";
 import { ModuleFileLinks } from "@/components/files/ModuleFileLinks";
+import { CoursePreview } from "@/components/courses/CoursePreview";
 import {
   ModuleAssignmentsPanel,
   type ModuleAssignmentView,
@@ -65,6 +66,61 @@ export default async function CoursePage({
   // If the course exists + is published but the user isn't enrolled,
   // show an enrollment prompt instead of 404-ing.
   if (!enrollment) {
+    // ADMIN holds no seat by design, so "not enrolled" would otherwise
+    // hide the curriculum of every course they are responsible for. Give
+    // them a read-only preview rather than an enrollment prompt they can
+    // never act on.
+    if (canPreviewCourseContent(session!.user.role)) {
+      const [preview, previewAssignments] = await Promise.all([
+        getCourseCurriculum(course.id),
+        db.assignment.findMany({
+          where: { module: { courseId: course.id } },
+          select: { moduleId: true },
+        }),
+      ]);
+      const assignmentCountByModule = new Map<string, number>();
+      for (const a of previewAssignments) {
+        assignmentCountByModule.set(
+          a.moduleId,
+          (assignmentCountByModule.get(a.moduleId) ?? 0) + 1,
+        );
+      }
+
+      return (
+        <>
+          <SubNav items={LEARN_TABS} />
+          <Breadcrumb
+            items={[
+              { label: "Learn", href: "/dashboard" },
+              { label: "My courses", href: "/dashboard/courses" },
+              { label: course.title },
+            ]}
+          />
+          <div className="mt-3 mb-6">
+            <div className="mb-1 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.12em] text-ink-muted">
+              <span>Course</span>
+              <Badge tone="neutral">admin preview</Badge>
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">
+              {course.title}
+            </h1>
+            <p className="mt-1 text-sm text-ink-muted">
+              Taught by{" "}
+              <span className="font-medium text-ink">
+                {course.instructor.name ?? "Instructor"}
+              </span>
+            </p>
+          </div>
+          <CoursePreview
+            courseSlug={course.slug}
+            courseTitle={course.title}
+            curriculum={preview}
+            assignmentCountByModule={assignmentCountByModule}
+          />
+        </>
+      );
+    }
+
     return (
       <>
         <SubNav items={LEARN_TABS} />

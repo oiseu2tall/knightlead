@@ -59,6 +59,8 @@ The four roles have **explicit, non-hierarchical** capabilities — ADMIN does *
 ¹ Staff accounts don't take courses, so the "My courses" page is empty by design — the catalog at `/dashboard/courses/browse` is shown in read-only mode instead.
 ² Admins can grade any submission; instructors are scoped to the courses they teach.
 
+**Admin course preview:** ADMIN holds no enrollment seat, so `/dashboard/courses/[slug]` would otherwise tell them "You're not enrolled yet" for every course they are responsible for. Instead they get a **read-only preview** of the whole course — every module and lesson, no cohort plan, no release gates, no progress tracking, and no submission forms. The preview is banner-labelled and reachable from a "Preview curriculum" link on each catalog card. Enforced by `canPreviewCourseContent()` in [lib/auth-guard.ts](lib/auth-guard.ts), and deliberately not extended to MANAGER or INSTRUCTOR, who reach course material through the catalog and teaching views instead.
+
 **Two different "enroll" rules — not a typo:**
 - **`enrollInCohort` (self-enroll):** only `STUDENT` may call it. The catalog at `/dashboard/courses/browse` shows the cohort picker only to students. The request is refused if the course is unpublished, the cohort is `isOpen: false`, or the cohort is at `capacity`. Enforced by `canEnroll()` in [lib/auth-guard.ts](lib/auth-guard.ts).
 - **`staffEnrollStudent` (enroll-on-behalf-of):** `MANAGER` and `ADMIN` place any `STUDENT` into any cohort. They pick **only a cohort** — the course is derived from it, so the two can never disagree. The action refuses to enroll non-students, honours `capacity`, ignores `isOpen` (staff explicitly override the intake window), creates the seat `ACTIVE`, and records `approvedById`. `/admin/enrollments` is the only UI. Enforced by `canEnrollOthers()` plus a runtime role check on the target user.
@@ -420,6 +422,9 @@ components/
                                 Shared by the lesson page and the course page's
                                 deep-linked module so the two cannot drift
     SubmissionForm.tsx         Pre-fill, grade display, drag-and-drop upload
+  courses/
+    CoursePreview.tsx           Read-only course curriculum for an admin with
+                                no seat (no progress, no gates, no forms)
   files/
     AssignmentFileLinks.tsx     View / Download links for assignment files
     ModuleFileLinks.tsx         Same, for module attachments
@@ -442,12 +447,13 @@ components/
 lib/
   auth-guard.ts                 requireUser / requireRole / requireRoleOrRedirect / withAuth
                                  + canEnroll / canEnrollOthers / canManageCatalog / canManageUsers / canGrade
+                                 + canPreviewCourseContent (ADMIN read-only course/lesson preview)
                                  + getCourseAccess / findLiveEnrollment / cohortAvailability
                                  (cohort-aware course access — the single source of truth)
-  curriculum.ts                  getCohortCurriculum / getInPlanModuleIds
-                                 + findSeatTeachingLesson / findSeatTeachingModule
-                                 + isLessonReleased / recomputeProgress
-                                 (what a seat is taught — the single source of truth)
+  curriculum.ts                  getCohortCurriculum / getCourseCurriculum / getInPlanModuleIds
+                                  + findSeatTeachingLesson / findSeatTeachingModule
+                                  + isLessonReleased / recomputeProgress
+                                  (what a seat is taught — the single source of truth)
   db.ts                         Prisma singleton (hot-reload safe)
   storage.ts                    Local-disk file store + HMAC-signed tokens
                                  (50MB documents, 500MB video)

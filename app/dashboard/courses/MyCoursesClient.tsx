@@ -101,17 +101,13 @@ export default function MyCoursesClient({
       {enrollments.length === 0 ? (
         <EmptyState
           icon="School"
-          title={role === "STUDENT" || role === "ADMIN" ? "No enrollments yet" : "Staff view"}
+          title={role === "STUDENT" ? "No enrollments yet" : "Staff view"}
           description={
-            role === "STUDENT" || role === "ADMIN"
+            role === "STUDENT"
               ? "Find a course in the catalog and click Enroll to get started."
-              : "Staff accounts don't take courses. You can still browse the catalog at /dashboard/courses/browse."
+              : "Staff accounts don't take courses. Browse the catalog to preview a curriculum or place a student into an intake."
           }
-          action={
-            role === "STUDENT" || role === "ADMIN"
-              ? { label: "Browse catalog", href: "/dashboard/courses/browse" }
-              : { label: "Browse catalog", href: "/dashboard/courses/browse" }
-          }
+          action={{ label: "Browse catalog", href: "/dashboard/courses/browse" }}
         />
       ) : filtered.length === 0 ? (
         <EmptyState

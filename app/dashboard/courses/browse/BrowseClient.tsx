@@ -151,6 +151,16 @@ export default function BrowseClient({
                         of courses having many cohorts. */}
                     <EnrollButton cohorts={c.cohorts} />
                   </div>
+                ) : isAdmin ? (
+                  // Admins hold no seat, but they are the ones responsible
+                  // for the course — give them a way in to inspect the
+                  // curriculum rather than a dead "enrollment disabled".
+                  <Link
+                    href={`/dashboard/courses/${c.slug}`}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink hover:bg-surface-dim"
+                  >
+                    Preview curriculum →
+                  </Link>
                 ) : (
                   <span className="inline-flex items-center gap-1.5 text-xs text-ink-muted">
                     <Icon.Group className="h-4 w-4" />

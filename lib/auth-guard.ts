@@ -125,6 +125,23 @@ export function canGrade(role: Role | undefined | null): boolean {
   return role === "INSTRUCTOR" || role === "ADMIN";
 }
 
+/**
+ * Viewing course content and lessons without holding a seat.
+ *
+ * ADMIN only, and strictly read-only: a preview shows what a student would
+ * see, with no progress, no release gates, and no submission forms. It
+ * exists because an admin holding no enrollment would otherwise hit
+ * "You're not enrolled yet" on every course they are responsible for, with
+ * no way to inspect the curriculum they just published.
+ *
+ * Deliberately not extended to MANAGER or INSTRUCTOR — those roles reach
+ * course material through the catalog and teaching views instead, which
+ * don't pretend to be a student's seat.
+ */
+export function canPreviewCourseContent(role: Role | undefined | null): boolean {
+  return role === "ADMIN";
+}
+
 // ---------------------------------------------------------------------------
 // Cohort-aware course access
 // ---------------------------------------------------------------------------

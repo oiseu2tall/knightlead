@@ -128,6 +128,45 @@ export async function getCohortCurriculum(cohortId: string): Promise<Curriculum 
   return { hasOwnPlan: true, modules: groupIntoModules(lessons), lessons };
 }
 
+/**
+ * The whole course as a curriculum, with no cohort plan and no release
+ * gates.
+ *
+ * This is what a cohort with no plan of its own gets, and what an admin
+ * previewing a course they hold no seat in gets: the master body of
+ * content, in the course's own module/lesson order.
+ */
+export async function getCourseCurriculum(courseId: string): Promise<Curriculum> {
+  const courseLessons = await db.lesson.findMany({
+    where: { module: { courseId } },
+    orderBy: [{ module: { order: "asc" } }, { order: "asc" }],
+    select: {
+      id: true,
+      title: true,
+      order: true,
+      isFree: true,
+      contentType: true,
+      durationMin: true,
+      module: { select: { id: true, title: true, order: true } },
+    },
+  });
+
+  const lessons: CurriculumLesson[] = courseLessons.map((l, index) => ({
+    lessonId: l.id,
+    lessonTitle: l.title,
+    moduleId: l.module.id,
+    moduleTitle: l.module.title,
+    order: index,
+    moduleOrder: l.module.order,
+    lessonOrder: l.order,
+    contentType: l.contentType,
+    durationMin: l.durationMin,
+    releaseAt: null,
+    isFree: l.isFree,
+  }));
+  return { hasOwnPlan: false, modules: groupIntoModules(lessons), lessons };
+}
+
 function groupIntoModules(lessons: CurriculumLesson[]): CurriculumModule[] {
   const byModule = new Map<string, CurriculumModule>();
   for (const lesson of lessons) {
