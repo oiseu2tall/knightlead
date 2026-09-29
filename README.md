@@ -10,8 +10,12 @@ A full-stack Learning Management System for cohort-based bootcamps. Built on **N
 - 🔒 **Account suspension** — ADMIN can suspend any user account (except their own). A suspended user is rejected at login and, if already logged in, is redirected to `/suspended` on the next request. The JWT self-heal callback reflects DB-side suspension so no session-expiry wait is needed.
 - 🧭 **Global sidebar on every authed page** — a single `<AuthedShell>` wrapper renders the role-aware drawer + sticky app bar on every page under `/dashboard/**`, `/admin/**`, and `/instructor/**`
 - 📚 **Courses & lessons** — modules, ordered lessons, per-user completion tracking with auto-recomputed progress (`LessonProgress` model)
+- 🗺️ **Cohort lesson plans** — each cohort optionally gets its own ordered `CohortLesson` plan with per-lesson `releaseAt` gates. A cohort with no plan teaches the whole course. Lessons omitted from a plan are unreachable (404) and can't be ticked complete, so an intake can be paced independently of the master curriculum.
+- 🎥 **Multi-video lessons** — a lesson owns one-to-many `LessonVideo` rows (URL or upload, never both), replacing the old single `Lesson.videoUrl`
+- 🧩 **Module-scoped assessments** — assignments and quizzes belong to a *module*, not a lesson. Grading one completes every lesson in that module and recomputes progress for every live seat the student holds.
 - 📝 **Polished assignment-submission flow** — pre-fills from existing submissions, shows grade + feedback inline, character counter, Cmd/Ctrl+Enter shortcut, drag-and-drop multi-file upload, 5-file cap
-- 📊 **Instructor grading queue** — filter by status, score cap, optimistic UI, audit trail, scoped to the instructor's own courses
+- 🔗 **Assignment deep links** — `/dashboard/assignments` links to `/dashboard/courses/<slug>?module=<id>#assignment-<id>`; the course page expands only modules the seat's cohort actually teaches
+- 📊 **Instructor grading queue** — filter by status, score cap, optimistic UI, audit trail, scoped to the instructor's own courses, with **view / download of every file a student attached**
 - 🧑‍🤝‍🧑 **Instructor cohorts** — read-only view of the cohorts belonging to the instructor's courses, grouped by course
 - 🛠️ **Catalog management** — MANAGER + ADMIN can create/edit cohorts, courses, and modules via modal-driven forms; attach PDF/PowerPoint files to modules
 - 🏷️ **Role filter chips + live search** — every list page (cohorts, courses, enrollments, users) has a debounced search input and status filter chips
@@ -25,6 +29,7 @@ A full-stack Learning Management System for cohort-based bootcamps. Built on **N
 - 🌗 **Theme** — class-based light/dark toggle (no system-preference override), `next/script` no-flash boot, persisted in `localStorage`, default = light
 - 📱 **Responsive** — mobile-first, persistent drawer on desktop, temporary drawer on mobile
 - 📄 **Branded 404 & 403** — friendly not-found and forbidden pages for any dead link / wrong role
+- 🚪 **Build-time admin bootstrap** — `prebuild` guarantees a verified, active ADMIN exists so a fresh deployment is never locked out (see [Admin bootstrap](#admin-bootstrap))
 
 ---
 
@@ -244,13 +249,13 @@ npm install
 # 2. Configure
 cp .env.example .env.local
 # Edit .env.local — at minimum set DATABASE_URL, AUTH_SECRET, MAIL_FROM.
-# (Prisma CLI reads .env; Next.js reads both .env and .env.local.)
+# (Prisma CLI reads .env via prisma.config.ts; Next.js reads both .env and .env.local.)
 
 # Generate AUTH_SECRET with:
 openssl rand -base64 32
 
 # 3. Database
-npx prisma migrate dev --name init
+npx prisma migrate dev
 
 # 4. (Optional) Seed dev accounts — one verified user per role
 npm run db:seed
@@ -260,6 +265,68 @@ npm run dev
 ```
 
 App runs at <http://localhost:3000>.
+
+> `npm run build` runs a `prebuild` hook that creates the admin account in **whatever database `DATABASE_URL` points at** — so step 3 must have run first, or the build fails.
+
+### Running in production mode locally
+
+```bash
+npx prisma migrate deploy   # apply existing migrations (never `migrate dev` in prod)
+npm run build               # includes the prebuild admin bootstrap
+npm run start               # next start
+```
+
+Differences from `npm run dev` worth knowing: no hot reload (rebuild to see changes), Prisma query logging is off (`lib/db.ts` only logs when `NODE_ENV === "development"`), and the dev seed refuses to run. Stop any running `next dev` first — two processes writing the same `.next/` corrupt the route tree and produce phantom 404s.
+
+### Admin bootstrap
+
+There is no in-app way to create the first admin, and that is deliberate:
+
+- `app/(auth)/actions.ts` hard-codes `role: "STUDENT"` on registration
+- `app/admin/users/actions.ts` gates `changeUserRole` behind `requireRole("ADMIN")`
+- `prisma/seed.ts` aborts under `NODE_ENV=production`
+
+Without a bootstrap path, a fresh production database would have no ADMIN and `/admin/users` would return 403 for everyone. `prisma/ensure-admin.ts` closes that gap. It runs from the `prebuild` hook and enforces five invariants on `admin@knightleadsolutions.com.ng`:
+
+| Invariant         | Behaviour when violated                                  |
+|-------------------|----------------------------------------------------------|
+| Account exists    | Created verified and active, with a bcrypt(12) hash       |
+| `role = ADMIN`    | Repaired                                                 |
+| `suspended = false` | Repaired                                               |
+| `emailVerified` set | Repaired                                              |
+| Password hash present | Repaired (covers OAuth-only accounts)                 |
+
+Design choices worth knowing:
+
+- **The password is only ever *set*, never re-set.** An account that already has a hash is left alone, so a redeploy can't silently undo a password change you made after the first deploy.
+- **An already-correct admin is silent**, so it doesn't spam build logs on every deploy.
+- **No `DATABASE_URL` → skip, build continues.** Typecheck-only CI isn't blocked.
+- **`DATABASE_URL` set but unreachable → build fails.** A silently admin-less release is worse than a blocked deploy.
+- Credentials are overridable with `BOOTSTRAP_ADMIN_EMAIL` / `BOOTSTRAP_ADMIN_PASSWORD`. Set those in Vercel rather than relying on the committed defaults, which stay readable in git history.
+
+To run it without a full build:
+
+```bash
+npm run db:ensure-admin
+```
+
+To grant a role to any other account (out-of-band, writes a `PROMOTE_USER` audit row):
+
+```bash
+vercel env pull .env.production.local
+# dotenv only reads `.env`, so export the pulled URL explicitly or you'll
+# silently operate on your local database instead.
+# PowerShell:
+$env:DATABASE_URL = (Get-Content .env.production.local | Select-String '^DATABASE_URL').Line.Split('=',2)[1].Trim('"')
+# bash:
+export DATABASE_URL="$(grep '^DATABASE_URL=' .env.production.local | cut -d= -f2- | tr -d '\"')"
+
+npm run db:promote -- someone@example.com MANAGER
+```
+
+Both scripts print the target `host/database` before touching anything — read that line before pressing on. `db:promote` additionally refuses to run under `NODE_ENV=production` unless you pass `--yes`.
+
+After either path, **sign out and back in** so the new role reaches the session token — `auth.ts` re-reads the role from the DB on each request, but the cookie has to be re-issued.
 
 ### Dev seed accounts
 
@@ -287,8 +354,10 @@ See [`.env.example`](.env.example) for the full list. Key ones:
 | `EMAIL_APP_PASSWORD` | Gmail app-specific password for Nodemailer           |
 | `MAIL_FROM`        | `From:` address for transactional mail                 |
 | `UPLOAD_DIR`       | Local file storage path (default `./uploads`)          |
+| `BOOTSTRAP_ADMIN_EMAIL` | Admin created by the `prebuild` hook (optional override) |
+| `BOOTSTRAP_ADMIN_PASSWORD` | Its initial password (optional override)        |
 
----
+`.env.example` is the full list. Note that `.env*` is gitignored, so **nothing from your local `.env` reaches Vercel** — every var above must be set in the Vercel project settings or production will 500. `AUTH_SECRET` in particular has no safe default: `lib/storage.ts` falls back to a hardcoded dev string, which would let anyone forge file URLs.---
 
 ## Project structure
 
@@ -317,7 +386,8 @@ app/
     layout.tsx                 <AuthedShell allowedRoles={["INSTRUCTOR","ADMIN"]}>
     cohorts/page.tsx            Read-only — cohorts of the instructor's courses, grouped by course
     grading/                    Role-scoped queue + optimistic grading
-      {page, GradingPanel, actions}.tsx
+      {page, GradingPanel, actions}.tsx  (panel lists each submission's
+                                         files with view / download)
   admin/                        Role-gated (MANAGER | ADMIN) — uses <AuthedShell>
     layout.tsx                 <AuthedShell allowedRoles={["MANAGER","ADMIN"]}>
     page.tsx                    Catalog hub (links to enrollments / cohorts / courses / users)
@@ -345,6 +415,14 @@ app/
   proxy.ts                      Next 16 proxy — role gates + auth gate
 
 components/
+  assignments/
+    ModuleAssignmentsPanel.tsx A module's assignments + live submission forms.
+                                Shared by the lesson page and the course page's
+                                deep-linked module so the two cannot drift
+    SubmissionForm.tsx         Pre-fill, grade display, drag-and-drop upload
+  files/
+    AssignmentFileLinks.tsx     View / Download links for assignment files
+    ModuleFileLinks.tsx         Same, for module attachments
   layout/
     AuthedShell.tsx             Shared auth + verification + role gate + DashboardShell
     DashboardShell.tsx          Responsive shell (AppBar + drawer, theme toggle, sign-out)
@@ -380,17 +458,25 @@ lib/
   use-upload.ts                 Client upload hook (React state machine)
 
 prisma/
-  schema.prisma                 19 models (User, Account, Session, VerificationToken,
-                                Cohort, Course, Module, Lesson, Enrollment,
+  schema.prisma                 22 models (User, Account, Session, EmailVerification,
+                                Cohort, Course, Module, Lesson, LessonVideo,
+                                CohortLesson, CohortModule, Enrollment,
                                 LessonProgress, Assignment, Submission, Quiz,
                                 QuizQuestion, QuizAttempt, Announcement, Certificate,
                                 AuditLog, RateLimitEvent)
   seed.ts                       Dev seed — one verified user per role, plus one course
                                  with two cohorts and a student holding a seat in each
-                                 (idempotent)
+                                 (idempotent, refuses NODE_ENV=production)
+  ensure-admin.ts               Build-time admin bootstrap (runs from `prebuild`)
+  promote-admin.ts              Out-of-band role grant by email, with audit row
   migrations/                   SQL migrations (incl. add_manager_role for MANAGER
-                                 enum + cohort/course managerId FKs, and
-                                 cohort_course_rekey for the cohort-first model)
+                                 enum + cohort/course managerId FKs, cohort_course_rekey
+                                 for the cohort-first model, and
+                                 module_assessments_videos_cohort_curriculum for
+                                 module-scoped assessments + lesson videos +
+                                 per-cohort lesson plans)
+prisma.config.ts                Prisma CLI config — replaces the deprecated
+                                 `package.json#prisma` block (removed in Prisma 7)
 .env.example                    Full env-var reference
 ```
 
@@ -462,17 +548,32 @@ Lists that can grow arbitrarily (recent enrollments, all cohorts, all courses, a
 
 ```bash
 npm run dev        # Dev server
-npm run build      # Production build
-
+npm run build      # Production build (runs `prebuild` → admin bootstrap first)
 npm run start      # Run built app
 npm run lint       # ESLint
-npm run db:seed    # Seed dev accounts (refuses in production)
+
+npm run db:seed           # Seed dev accounts (refuses in production)
+npm run db:ensure-admin   # Assert the bootstrap admin exists (no build needed)
+npm run db:promote -- <email> [ROLE]   # Grant a role out-of-band, with audit row
 
 npx prisma studio          # Browse the DB
-npx prisma migrate dev     # Apply / create a migration
+npx prisma migrate dev     # Apply / create a migration (development)
+npx prisma migrate deploy  # Apply existing migrations only (production/CI)
 npx prisma generate        # Regenerate the Prisma client
 npx prisma db seed         # Same as npm run db:seed
 ```
+
+> `npx prisma` auto-discovers `prisma.config.ts` only from the project root. From a subdirectory, pass `--config ../prisma.config.ts`.
+
+### Deployment
+
+Vercel build command:
+
+```bash
+npx prisma migrate deploy && npm run build
+```
+
+Migrations land first, then `prebuild` asserts the admin, then Next builds. A Vercel "This page couldn't load" 500 is almost always a missing env var (see [Environment variables](#environment-variables)) or an unmigrated database — check the deployment's **Runtime Logs**, not the build log.
 
 ---
 
@@ -481,14 +582,18 @@ npx prisma db seed         # Same as npm run db:seed
 Before going live:
 
 - [ ] Set a strong `AUTH_SECRET` (32+ random bytes)
+- [ ] Set `DATABASE_URL`, `AUTH_URL` and `BOOTSTRAP_ADMIN_*` in the Vercel project — `.env*` is gitignored, so nothing reaches production automatically
+- [ ] Use the **pooler** URL for `DATABASE_URL` (Supabase: `?pgbouncer=true&connection_limit=1&sslmode=require`); the direct connection exhausts itself from serverless
+- [ ] Build command is `npx prisma migrate deploy && npm run build` so the schema and the admin bootstrap are applied before the deploy goes live
 - [ ] Configure `EMAIL_ADDRESS` + `EMAIL_APP_PASSWORD` for Gmail SMTP, or a custom `NODEMAILER_URL`
 - [ ] Run behind HTTPS (sets the `Secure` cookie flag)
 - [ ] Add CSP, HSTS, `X-Frame-Options: DENY` via `next.config.ts` `headers()`
-- [ ] Replace local-disk storage with S3/R2 (swap the body of `lib/storage.ts` — the S3-shaped interface is already in place)
-- [ ] Move rate-limiter pruning to a cron job (the in-process `setInterval` is for long-running nodes)
+- [ ] **Replace local-disk storage with S3/R2** — `lib/storage.ts` writes to `process.cwd()/uploads`, which is read-only in a serverless function, so uploads throw `EROFS`. The S3-shaped interface is already in place; `S3_*` vars are stubbed in `.env.example`
+- [ ] Move rate-limiter pruning to a Vercel Cron — the `setInterval` in `instrumentation.ts` never fires because functions freeze between invocations
 - [ ] Wire lesson content through a Markdown renderer with `rehype-sanitize` (currently escaped as plain text)
 - [ ] Add tests: Vitest for `lib/storage.ts` token logic + grading action; Playwright for the login → enroll → submit → grade flow
-- [ ] Disable the dev seed by deleting the npm script and the `prisma.seed` field in `package.json` (or simply don't run it in prod — it already self-aborts on `NODE_ENV=production`)
+- [ ] Remove the committed `BOOTSTRAP_ADMIN_PASSWORD` default once the env-var override is in place, and rotate the password
+- [ ] Delete the dev seed npm script — it already self-aborts on `NODE_ENV=production`, but removing it removes the temptation
 
 ---
 

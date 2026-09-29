@@ -141,6 +141,10 @@ const user = await db.user.findUnique({
       if (token.uid) session.user.id = token.uid;
       if (token.role) session.user.role = token.role;
       session.user.emailVerified = typeof token.ev === "number" ? new Date(token.ev) : null;
+      // Must be carried onto the session, not just the token: the proxy
+      // gates on `session.user.suspended` before any page renders, and a
+      // token-only flag leaves that check permanently false.
+      session.user.suspended = token.susp === true;
       return session;
     },
     // Reject unverified emails on protected routes when used.
