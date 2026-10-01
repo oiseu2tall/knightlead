@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { auth } from "@/auth";
+import { Logo } from "@/components/public/Logo";
 import { RegisterForm } from "./RegisterForm";
 
 export const metadata = { title: "Create account · Bootcamp LMS" };
@@ -16,10 +17,10 @@ export default async function RegisterPage() {
         <div className="mb-6 text-center">
           <Link
             href="/"
-            className="inline-flex items-center gap-2 text-xl font-bold tracking-tight text-ink"
+            className="inline-flex items-center gap-2.5 text-xl font-bold tracking-tight text-ink"
           >
-            <span className="h-6 w-6 rounded-md bg-hero" aria-hidden="true" />
-            Bootcamp LMS
+            <Logo height={32} />
+            KnightLead LMS
           </Link>
           <h1 className="mt-4 text-2xl font-bold text-ink">Create your account</h1>
           <p className="mt-1 text-sm text-ink-muted">Join a cohort and start learning today.</p>
