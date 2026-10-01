@@ -17,6 +17,7 @@ import { LessonFormFields, type LessonFormData } from "./LessonForm";
 import { LessonVideoFormFields, type LessonVideoFormData } from "./LessonVideoForm";
 import { AssignmentFormFields, type AssignmentFormData } from "./AssignmentForm";
 import { AssignmentFileLinks } from "@/components/files/AssignmentFileLinks";
+import { ModuleFileLinks } from "@/components/files/ModuleFileLinks";
 import { deleteAssignment, deleteLesson, deleteLessonVideo } from "../../../../catalog/actions";
 
 type Lesson = {
@@ -70,6 +71,9 @@ type Module = {
   id: string;
   title: string;
   order: number;
+  fileKey: string | null;
+  fileName: string | null;
+  fileUrl: string | null;
   lessons: Lesson[];
   assignments: Assignment[];
   quizzes: Quiz[];
@@ -181,6 +185,11 @@ export default function ModuleAssignmentsClient({ course, module: mod, role: _ro
             <span>{mod.assignments.length} assignments</span>
           </div>
           <h1 className="text-2xl font-bold tracking-tight text-ink sm:text-3xl">{mod.title}</h1>
+          {mod.fileUrl && mod.fileName && (
+            <div className="mt-2">
+              <ModuleFileLinks fileUrl={mod.fileUrl} fileName={mod.fileName} />
+            </div>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <Link

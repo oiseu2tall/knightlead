@@ -29,6 +29,8 @@ export default async function ModuleDetailPage({
   const mod = await db.module.findUnique({
     where: { id: moduleId },
     include: {
+      // fileKey/fileName carry the module's own uploaded attachment (PDF or
+      // slides), distinct from any lesson videos underneath it.
       lessons: {
         orderBy: { order: "asc" },
         select: { id: true, title: true, contentType: true, content: true, durationMin: true, order: true, isFree: true },
@@ -76,6 +78,11 @@ export default async function ModuleDetailPage({
         id: mod.id,
         title: mod.title,
         order: mod.order,
+        fileKey: mod.fileKey,
+        fileName: mod.fileName,
+        fileUrl: mod.fileKey
+          ? `/api/files/download/${encodeURIComponent(mod.fileKey)}?t=${signToken(mod.fileKey)}`
+          : null,
         lessons: mod.lessons,
         assignments,
         quizzes: mod.quizzes.map((q) => ({

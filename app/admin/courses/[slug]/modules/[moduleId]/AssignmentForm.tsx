@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/Button";
 import { Field, Input, Textarea } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { useUpload } from "@/lib/use-upload";
+import { MAX_UPLOAD_LABEL } from "@/lib/upload-config";
 import { upsertAssignment, deleteAssignment } from "../../../../catalog/actions";
 
 type Attachment = { key: string; name: string; size: number; url: string };
@@ -139,7 +140,9 @@ export function AssignmentFormFields({
             }}
           />
         </label>
-        <p className="mt-1 text-xs text-ink-muted">Optional. Up to 5 files, 50 MB each. PDF, docs, slides, zip.</p>
+        <p className="mt-1 text-xs text-ink-muted">
+          Optional. Up to 5 files, {MAX_UPLOAD_LABEL} each. PDF, docs, slides, zip.
+        </p>
       </div>
 
       {error && (

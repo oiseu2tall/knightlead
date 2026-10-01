@@ -1,77 +1,51 @@
-// File upload — accepts a single multipart file, stores it via the
-// storage adapter, returns the object key + signed URL.
+// Issues a single-upload authorisation for Cloudinary.
 //
-// Auth: caller must be signed in (any role).
-// Limits: 50MB per file for documents/images, 500MB for video
-// (enforced again in storage.putObject).
+// The file itself does NOT come through here. Serverless hosts cap request
+// bodies at ~4.5MB, so proxying a 10MB upload would work locally and fail
+// in production. Instead the browser POSTs the file straight to Cloudinary
+// with the signature returned here.
+//
+// The signed payload pins the size ceiling, so the client cannot raise its
+// own limit; Cloudinary rejects anything over it.
 
 import { NextRequest, NextResponse } from "next/server";
 import { auth } from "@/auth";
-import { putObject } from "@/lib/storage";
+import { createUploadTicket, isStorageConfigured } from "@/lib/storage";
 import { rateLimit } from "@/lib/rate-limit";
+import { isAllowedUploadType } from "@/lib/upload-config";
 
-// Force the Node.js runtime — fs/buffer APIs aren't available on Edge.
 export const runtime = "nodejs";
 
-const ALLOWED = new Set([
-  "image/png", "image/jpeg", "image/webp", "image/gif",
-  "application/pdf",
-  "application/vnd.ms-powerpoint",
-  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
-  "text/plain", "text/markdown",
-  "application/zip",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  // Video, for lesson recordings. Kept to container formats a browser
-  // can play directly rather than anything that would need transcoding.
-  "video/mp4", "video/webm", "video/ogg", "video/quicktime",
-]);
-
-export async function POST(req: NextRequest) {
+export async function GET(req: NextRequest) {
   const session = await auth();
   if (!session?.user?.id) {
     return NextResponse.json({ error: "unauthenticated" }, { status: 401 });
   }
 
-  const limited = await rateLimit(`upload:${session.user.id}`, { limit: 30, windowMs: 60_000 });
+  const limited = await rateLimit(`upload:${session.user.id}`, { limit: 60, windowMs: 60_000 });
   if (!limited.ok) {
     return NextResponse.json({ error: "rate_limited" }, { status: 429 });
   }
 
-  let form: FormData;
+  if (!isStorageConfigured()) {
+    return NextResponse.json({ error: "storage_not_configured" }, { status: 503 });
+  }
+
+  // The client declares the type so the server can derive the Cloudinary
+  // resource type and therefore the final object key. It is re-validated
+  // here and again by the signature, so a lie is rejected rather than
+  // trusted — the worst a wrong answer can do is earn a useless ticket.
+  const contentType = req.nextUrl.searchParams.get("type") ?? "";
+  if (!isAllowedUploadType(contentType)) {
+    return NextResponse.json({ error: "unsupported_type" }, { status: 415 });
+  }
+
   try {
-    form = await req.formData();
-  } catch {
-    return NextResponse.json({ error: "invalid_form_data" }, { status: 400 });
-  }
-
-  const file = form.get("file");
-  if (!(file instanceof File)) {
-    return NextResponse.json({ error: "missing_file" }, { status: 400 });
-  }
-  if (!ALLOWED.has(file.type)) {
-    return NextResponse.json({ error: "unsupported_type", type: file.type }, { status: 415 });
-  }
-
-  // Reject oversized uploads before buffering: a rejected 500 MB video
-  // would otherwise be read fully into memory first. The authoritative
-  // check still lives in putObject.
-  const maxBytes = file.type.startsWith("video/") ? 500 * 1024 * 1024 : 50 * 1024 * 1024;
-  if (file.size > maxBytes) {
+    return NextResponse.json(createUploadTicket(contentType));
+  } catch (e) {
     return NextResponse.json(
-      { error: "too_large", maxBytes },
-      { status: 413 },
+      { error: "storage_not_configured", detail: (e as Error).message },
+      { status: 503 },
     );
   }
-
-  const buf = Buffer.from(await file.arrayBuffer());
-  const obj = await putObject({
-    filename: file.name || "upload",
-    contentType: file.type,
-    data: buf,
-  });
-
-  return NextResponse.json(obj, { status: 201 });
 }

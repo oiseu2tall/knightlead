@@ -22,7 +22,7 @@ A full-stack Learning Management System for cohort-based bootcamps. Built on **N
 - 🎓 **Cohort-first enrollment** — students enroll into a *cohort* (a dated intake of one course), never into a course directly. One course can have many cohorts, so the same student can hold a seat in several intakes of the same course. Each cohort has an optional seat cap and an open/closed switch for self-enrollment.
 - 🔐 **Enrollment approval** — a self-enrollment starts in `PENDING` and unlocks nothing until a manager or admin approves it; the approver and timestamp are recorded. Students can cancel their own pending request; managers can approve, decline, or move a seat to another cohort. Staff-placed students are created `ACTIVE` immediately.
 - 🔒 **Admin panel** — user search, role filter chips, pagination, inline role change (with audit log), per-user detail with enrollments / submissions / audit timeline, suspend/activate toggle. ADMIN only.
-- 📎 **Local file storage** — HMAC-signed token URLs, MIME allowlist, 50MB cap, path-traversal guards, S3-shaped interface for easy swap
+- 📎 **Cloudinary file storage** — uploads go **direct from the browser** using a server-minted signature, so no file ever passes through a Next.js request body. HMAC-signed download tokens, MIME allowlist, **10 MB per file appwide**, enforced by a signed upload preset
 - ✉️ **Email verification** — OTP-style (8-char code, no prefix), Nodemailer via Gmail SMTP, fallback chain (Gmail → Ethereal → console), auto-redirect to `/verify-email/pending` until verified
 - 🛡️ **Security** — proxy-based route gating + server-side re-checks in every layout/action, Zod validation everywhere, per-IP and per-user rate limits (Postgres-backed), `X-Content-Type-Options: nosniff`, HTTP-only cookies
 - 🚀 **CSS-only long-list virtualization** — `content-visibility: auto` on card grids and table rows; "Show more" pagination via the `<LongList>` component
@@ -355,7 +355,11 @@ See [`.env.example`](.env.example) for the full list. Key ones:
 | `EMAIL_ADDRESS`    | Gmail address for Nodemailer SMTP                      |
 | `EMAIL_APP_PASSWORD` | Gmail app-specific password for Nodemailer           |
 | `MAIL_FROM`        | `From:` address for transactional mail                 |
-| `UPLOAD_DIR`       | Local file storage path (default `./uploads`)          |
+| `UPLOAD_DIR`       | Local file storage path (unused — storage is Cloudinary now)     |
+| `CLOUDINARY_CLOUD_NAME` | Cloudinary account/cloud name                           |
+| `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | Sign upload and delete requests        |
+| `CLOUDINARY_FOLDER` | Media-library folder uploads are filed under (default `knightlead`) |
+| `CLOUDINARY_UPLOAD_PRESET` | Upload preset name — the only way to make the 10MB ceiling unbypassable |
 | `BOOTSTRAP_ADMIN_EMAIL` | Admin created by the `prebuild` hook (optional override) |
 | `BOOTSTRAP_ADMIN_PASSWORD` | Its initial password (optional override)        |
 
@@ -455,8 +459,10 @@ lib/
                                   + isLessonReleased / recomputeProgress
                                   (what a seat is taught — the single source of truth)
   db.ts                         Prisma singleton (hot-reload safe)
-  storage.ts                    Local-disk file store + HMAC-signed tokens
-                                 (50MB documents, 500MB video)
+  storage.ts                    Cloudinary adapter: signed direct upload, HMAC
+                                 download tokens, streaming get, signed destroy
+  upload-config.ts              Shared 10MB ceiling + MIME allowlist
+                                 (browser-safe, so client and server agree)
   rate-limit.ts                 Postgres sliding-window rate limiter
   email-verification.ts         OTP code issue/consume (single-use, 15-min TTL)
   mailer.ts                     Pluggable transport (Gmail SMTP → Ethereal → console)
@@ -534,6 +540,35 @@ Lists that can grow arbitrarily (recent enrollments, all cohorts, all courses, a
 
 ---
 
+## File uploads (Cloudinary)
+
+Files go **straight from the browser to Cloudinary**. They never pass through a Next.js request body, because serverless hosts cap request bodies at ~4.5 MB — a 10 MB limit proxied through an API route works locally and fails in production.
+
+```
+1. client  ──GET  /api/files/upload?type=application/pdf──▶  server
+2. server  ◀──{ uploadUrl, signature, publicId, key, url }──
+3. client  ──POST file + signature ──────────────────────▶  Cloudinary
+4. user    ──GET  /api/files/download/<key>?t=<token> ───▶  server ──▶ Cloudinary
+```
+
+**Why the key is decided in step 2.** The client needs a working link to a file it just uploaded, but a download token can't be minted in the browser (it would need `AUTH_SECRET`) and a "sign this key for me" endpoint would be an oracle that could mint a link to *anyone's* submission. So the server picks the object key up front — deriving the Cloudinary resource type from the declared MIME type — and hands back an already-signed download URL. Asking for a ticket later for a key you just created would need the same round trip anyway.
+
+**Why the key carries its own extension.** Cloudinary rewrites the public id it returns: raw assets gain their extension, and a `folder` upload param gets prefixed onto the id. Either rewrite means the id that comes back no longer matches the one that was signed, so the client would hold a download URL pointing at nothing. So the extension is chosen from the MIME type up front (never from the submitted filename, which is attacker-controlled) and no `folder` param is sent — the upload preset owns the folder instead. Verified live: an id without an extension comes back as `<id>.txt`, the same id with `.txt` comes back unchanged.
+
+**Known limitation — deleted files can linger.** `deleteObject` signs `invalidate=true`, which removes the asset from the media library, but it does **not** purge `res.cloudinary.com`'s cache. An attachment that was downloaded before being deleted can keep streaming from the CDN until that cache entry ages out. This is Cloudinary's caching, not something the API can override — there is no authenticated delivery route for raw assets to bypass it. **Treat file deletion as revoking future access via the app, not as immediate erasure of bytes from Cloudinary's CDN.** If you need guaranteed erasure (student data requests, exam material), delete from the Cloudinary console or use a delivery domain you control.
+
+**What the signature pins.** Cloudinary signs the request's body parameters, sorted alphabetically, with `api_key`, `file`, `resource_type`, `cloud_name` and the validated options excluded. Concretely that is `folder`, `public_id`, `timestamp`, and — when configured — `upload_preset`. So a client cannot redirect an upload to a different key, swap its resource type, or substitute a different preset.
+
+> `max_file_size` is **not** signed. Cloudinary excludes it from the digest, and a real failure confirmed it: signing it produces `Invalid Signature` on every upload. The client still sends it, and Cloudinary enforces it, but a deliberate client can simply omit it. That is why the **upload preset matters**: a preset is a signed body parameter, so its server-side `max_file_size` cannot be dropped or swapped. Set `CLOUDINARY_UPLOAD_PRESET` and the 10 MB ceiling becomes real rather than advisory.
+
+**Why downloads stream rather than redirect.** A Cloudinary delivery URL is a permanent, unexpiring link. Serving it behind the HMAC token keeps the token the only way in, exactly as with the previous local-disk adapter.
+
+**Object keys** are `<resourceType>/<publicId>`, e.g. `raw/lms/2026/09/9f2c…`. The resource type is resolved server-side rather than left to Cloudinary's `auto` upload, because the signed delete call needs a concrete type.
+
+`lib/upload-config.ts` holds the 10 MB ceiling and the MIME allowlist. It has no Node-only imports, so the browser imports the same constants the server signs against — the client check is a courtesy, never the control.
+
+---
+
 ## Security checklist
 
 - **Passwords** — bcrypt cost 12
@@ -541,7 +576,7 @@ Lists that can grow arbitrarily (recent enrollments, all cohorts, all courses, a
 - **Authorization** — re-checked inside every Server Action (`requireRole`) and in `/admin`, `/instructor`, and `/dashboard` layouts
 - **Capability checks** — every privileged operation goes through an explicit `can…()` helper in [lib/auth-guard.ts](lib/auth-guard.ts). The role matrix is the source of truth, not the role hierarchy: e.g. ADMIN does NOT inherit the right to enroll or teach.
 - **Input** — Zod at every boundary (forms, route handlers, server actions)
-- **Uploads** — MIME allowlist, 50MB cap for documents/images and 500MB for video, HMAC-signed token URLs, files live outside `/public`
+- **Uploads** — direct browser→Cloudinary signed upload (never proxied through a request body), 10MB per-file ceiling baked into the signature, MIME allowlist, HMAC-signed download tokens, files are not publicly addressable
 - **Headers** — `X-Content-Type-Options: nosniff`
 - **Rate limits** — per-IP and per-user buckets for login, register, upload, grading, verification resend, role changes, catalog edits, enrollment
 - **Audit log** — grade actions, role changes, cohort/course/module edits, seat moves, and **both** self-enrollments and staff-initiated enrollments are recorded with actor and target. Approvals additionally record `approvedAt` / `approvedById` on the enrollment itself.
@@ -591,10 +626,13 @@ Before going live:
 - [ ] Set `DATABASE_URL`, `AUTH_URL` and `BOOTSTRAP_ADMIN_*` in the Vercel project — `.env*` is gitignored, so nothing reaches production automatically
 - [ ] Use the **pooler** URL for `DATABASE_URL` (Supabase: `?pgbouncer=true&connection_limit=1&sslmode=require`); the direct connection exhausts itself from serverless
 - [ ] Build command is `npx prisma migrate deploy && npm run build` so the schema and the admin bootstrap are applied before the deploy goes live
+- [ ] Configure `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` — without them uploads return `storage_not_configured` (503) and downloads 502
+- [ ] Create a Cloudinary upload preset with `max_file_size: 10485760`, `folder: knightlead`, and `allowed_formats`, then set `CLOUDINARY_UPLOAD_PRESET`. Without it the 10MB limit is advisory — the per-request `max_file_size` is unsigned and a deliberate client can drop it
 - [ ] Configure `EMAIL_ADDRESS` + `EMAIL_APP_PASSWORD` for Gmail SMTP, or a custom `NODEMAILER_URL`
 - [ ] Run behind HTTPS (sets the `Secure` cookie flag)
 - [ ] Add CSP, HSTS, `X-Frame-Options: DENY` via `next.config.ts` `headers()`
-- [ ] **Replace local-disk storage with S3/R2** — `lib/storage.ts` writes to `process.cwd()/uploads`, which is read-only in a serverless function, so uploads throw `EROFS`. The S3-shaped interface is already in place; `S3_*` vars are stubbed in `.env.example`
+- [ ] **Videos are capped at 10MB like everything else.** That is roughly one minute of a low-bitrate screen recording — long enough for a clip, far too short for a full lecture. Longer recordings must be split into one video per part, or the per-type limit has to be relaxed in [lib/upload-config.ts](lib/upload-config.ts)
+- [ ] Existing attachment rows point at the **old local-disk keys** (`yyyy/mm/dd/<id>.ext`) and will not resolve — those files were never on the deployed database. Re-upload anything that matters, or write a one-off backfill
 - [ ] Move rate-limiter pruning to a Vercel Cron — the `setInterval` in `instrumentation.ts` never fires because functions freeze between invocations
 - [ ] Wire lesson content through a Markdown renderer with `rehype-sanitize` (currently escaped as plain text)
 - [ ] Add tests: Vitest for `lib/storage.ts` token logic + grading action; Playwright for the login → enroll → submit → grade flow

@@ -11,6 +11,10 @@ import { Field, Textarea } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { Icon } from "@/components/ui/Icon";
 import { useUpload } from "@/lib/use-upload";
+import {
+  MAX_UPLOAD_LABEL,
+  UPLOAD_ACCEPT_ATTRIBUTE,
+} from "@/lib/upload-config";
 import { submitAssignment } from "@/app/dashboard/assignments/actions";
 
 type Attachment = { key: string; name: string; size: number; url: string };
@@ -327,7 +331,7 @@ function SubmissionFields(props: {
             type="file"
             multiple
             className="hidden"
-            accept=".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.md,.zip,.doc,.docx,.xls,.xlsx,.ppt,.pptx"
+            accept={UPLOAD_ACCEPT_ATTRIBUTE}
             onChange={(e) => {
               onFiles(e.target.files);
               e.currentTarget.value = "";
@@ -335,7 +339,7 @@ function SubmissionFields(props: {
           />
         </label>
         <p className="mt-1 text-xs text-ink-muted">
-          Up to {MAX_FILES} files, 50 MB each. PDF, images, docs, slides, zip.
+          Up to {MAX_FILES} files, {MAX_UPLOAD_LABEL} each. PDF, images, docs, slides, zip.
         </p>
       </div>
 

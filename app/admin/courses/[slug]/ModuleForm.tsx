@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/Button";
 import { Field, Input } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { useUpload } from "@/lib/use-upload";
+import { MAX_UPLOAD_LABEL } from "@/lib/upload-config";
 import { upsertModule, deleteModule } from "../../catalog/actions";
 
 type Attachment = { key: string; name: string; size: number; url: string };
@@ -137,7 +138,9 @@ export function ModuleFormFields({
             }}
           />
         </label>
-        <p className="mt-1 text-xs text-ink-muted">Optional. PDF or PowerPoint, max 50 MB.</p>
+        <p className="mt-1 text-xs text-ink-muted">
+          Optional. PDF or PowerPoint, max {MAX_UPLOAD_LABEL}.
+        </p>
       </div>
 
       {error && (

@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/Button";
 import { Field, Input, Textarea } from "@/components/ui/Field";
 import { Icon } from "@/components/ui/Icon";
 import { useUpload } from "@/lib/use-upload";
+import { MAX_UPLOAD_LABEL } from "@/lib/upload-config";
 import { upsertLessonVideo } from "../../../../catalog/actions";
 
 export type LessonVideoFormData = {
@@ -154,6 +155,10 @@ export function LessonVideoFormFields({
             />
           </label>
         )}
+        <p className="mt-1 text-xs text-ink-muted">
+          MP4, WebM, Ogg or MOV · max {MAX_UPLOAD_LABEL} per file. Split longer
+          lectures into one video per part.
+        </p>
       </div>
 
       <div className="grid grid-cols-2 gap-3">
