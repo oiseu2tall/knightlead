@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
-    "prebuild": "tsx prisma/ensure-admin.ts",
+    "prebuild": "npx prisma generate && tsx prisma/ensure-admin.ts",
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
