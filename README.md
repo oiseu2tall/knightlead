@@ -24,6 +24,7 @@ A full-stack Learning Management System for cohort-based bootcamps. Built on **N
 - 🔒 **Admin panel** — user search, role filter chips, pagination, inline role change (with audit log), per-user detail with enrollments / submissions / audit timeline, suspend/activate toggle. ADMIN only.
 - 📎 **Cloudinary file storage** — uploads go **direct from the browser** using a server-minted signature, so no file ever passes through a Next.js request body. HMAC-signed download tokens, MIME allowlist, **10 MB per file appwide**, enforced by a signed upload preset
 - ✉️ **Email verification** — OTP-style (8-char code, no prefix), Nodemailer via Gmail SMTP, fallback chain (Gmail → Ethereal → console), auto-redirect to `/verify-email/pending` until verified
+- 🔑 **Password reset** — request an 8-char reset code by email (30-min TTL, max 5 attempts), enter it with a new password at `/reset-password`, code is consumed atomically on use. Rate-limited per IP on both request and verify.
 - 🛡️ **Security** — proxy-based route gating + server-side re-checks in every layout/action, Zod validation everywhere, per-IP and per-user rate limits (Postgres-backed), `X-Content-Type-Options: nosniff`, HTTP-only cookies
 - 🚀 **CSS-only long-list virtualization** — `content-visibility: auto` on card grids and table rows; "Show more" pagination via the `<LongList>` component
 - 🌗 **Theme** — class-based light/dark toggle (no system-preference override), `next/script` no-flash boot, persisted in `localStorage`, default = light
@@ -414,6 +415,8 @@ app/
       actions.ts                changeUserRole (with audit log + self-demotion guard)
       [id]/page.tsx             Per-user detail with audit timeline
   verify-email/                 OTP verification flow (/verify-email, /pending, /resend)
+  forgot-password/              Request a password reset code by email (/forgot-password)
+  reset-password/               Enter reset code + new password (/reset-password)
   forbidden/                    403 page (proxy target)
   not-found.tsx                 Branded 404
   layout.tsx                    Root layout, theme boot script
@@ -465,13 +468,14 @@ lib/
                                  (browser-safe, so client and server agree)
   rate-limit.ts                 Postgres sliding-window rate limiter
   email-verification.ts         OTP code issue/consume (single-use, 15-min TTL)
+  password-reset.ts             Password reset OTP issue/verify/consume (single-use, 30-min TTL)
   mailer.ts                     Pluggable transport (Gmail SMTP → Ethereal → console)
   role.ts                       ROLE_META + roleLabel/roleSection helpers (UI-only)
   use-upload.ts                 Client upload hook (React state machine)
 
 prisma/
-  schema.prisma                 22 models (User, Account, Session, EmailVerification,
-                                Cohort, Course, Module, Lesson, LessonVideo,
+  schema.prisma                 23 models (User, Account, Session, EmailVerification,
+                                PasswordReset, Cohort, Course, Module, Lesson, LessonVideo,
                                 CohortLesson, CohortModule, Enrollment,
                                 LessonProgress, Assignment, Submission, Quiz,
                                 QuizQuestion, QuizAttempt, Announcement, Certificate,
