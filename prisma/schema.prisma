@@ -137,6 +137,24 @@ model EmailVerification {
   @@map("email_verifications")
 }
 
+// ---------- Password reset ----------
+
+model PasswordReset {
+  id            String   @id @default(cuid())
+  email         String   @db.Text
+  code          String   @unique @db.Text
+  isUsed        Boolean  @default(false)
+  expiresAt     DateTime
+  attemptsCount Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([email])
+  @@index([email])
+  @@index([expiresAt])
+  @@map("password_resets")
+}
+
 // ---------- Curriculum ----------
 
 // A cohort is a time-boxed intake for ONE course. A course always has

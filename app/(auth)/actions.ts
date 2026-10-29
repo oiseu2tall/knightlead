@@ -11,6 +11,7 @@ import { AuthError as NextAuthError } from "next-auth";
 import { headers } from "next/headers";
 import { rateLimit } from "@/lib/rate-limit";
 import { createVerificationCode, verifyCode } from "@/lib/email-verification";
+import { createPasswordResetCode, verifyPasswordResetCode, resetUserPassword } from "@/lib/password-reset";
 
 export type AuthFormState = { error?: string; fieldErrors?: Record<string, string> } | null;
 
@@ -157,4 +158,83 @@ export async function loginAction(_prev: AuthFormState, formData: FormData): Pro
   }
   const { redirect } = await import("next/navigation");
   redirect("/dashboard");
+}
+
+// ---------- Password reset ----------
+
+const forgotPasswordSchema = z.object({
+  email: z.string().email("Enter a valid email").max(255).toLowerCase(),
+});
+
+export type ForgotPasswordResult = { ok: boolean; error?: string } | null;
+
+export async function forgotPasswordAction(_prev: ForgotPasswordResult, formData: FormData): Promise<ForgotPasswordResult | void> {
+  const ip = await clientIp();
+  const limited = await rateLimit(`forgot-password:${ip}`, { limit: 3, windowMs: 60_000 });
+  if (!limited.ok) return { ok: false, error: "Too many attempts. Try again in a minute." };
+
+  const parsed = forgotPasswordSchema.safeParse({ email: formData.get("email") });
+  if (!parsed.success) return { ok: false, error: "Enter a valid email address." };
+  const { email } = parsed.data;
+
+  try {
+    await createPasswordResetCode(email);
+  } catch (e) {
+    console.error("[password-reset] create code failed:", e);
+    return { ok: false, error: "Couldn't send reset code. Please try again." };
+  }
+
+  // Always pretend success to avoid email enumeration.
+  const { redirect } = await import("next/navigation");
+  redirect("/reset-password");
+}
+
+const resetPasswordSchema = z.object({
+  email: z.string().email("Enter a valid email").max(255).toLowerCase(),
+  code: z.string().min(8).max(8).regex(/^[A-Z2-9]{8}$/, "Enter the code as shown in your email"),
+  password: z
+    .string()
+    .min(8, "At least 8 characters")
+    .max(128)
+    .regex(/[A-Z]/, "Must contain an uppercase letter")
+    .regex(/[a-z]/, "Must contain a lowercase letter")
+    .regex(/[0-9]/, "Must contain a number"),
+});
+
+export type ResetPasswordResult = { ok: boolean; error?: string } | null;
+
+export async function resetPasswordAction(_prev: ResetPasswordResult, formData: FormData): Promise<ResetPasswordResult | void> {
+  const ip = await clientIp();
+  const limited = await rateLimit(`reset-password:${ip}`, { limit: 5, windowMs: 60_000 });
+  if (!limited.ok) return { ok: false, error: "Too many attempts. Try again in a minute." };
+
+  const parsed = resetPasswordSchema.safeParse({
+    email: formData.get("email"),
+    code: formData.get("code"),
+    password: formData.get("password"),
+  });
+  if (!parsed.success) {
+    const fieldErrors: Record<string, string> = {};
+    for (const issue of parsed.error.issues) {
+      const k = issue.path[0]?.toString() ?? "_";
+      if (!fieldErrors[k]) fieldErrors[k] = issue.message;
+    }
+    return { ok: false, error: Object.values(fieldErrors)[0] ?? "Invalid input." };
+  }
+  const { email, code, password } = parsed.data;
+
+  const verified = await verifyPasswordResetCode(email, code);
+  if (!verified.ok) {
+    switch (verified.error) {
+      case "expired": return { ok: false, error: "This code has expired. Request a new one." };
+      case "already_used": return { ok: false, error: "This code has already been used. Request a new one." };
+      case "too_many_attempts": return { ok: false, error: "Too many failed attempts. Request a new code." };
+      default: return { ok: false, error: "Invalid verification code." };
+    }
+  }
+
+  await resetUserPassword(verified.user.id, password);
+
+  const { redirect } = await import("next/navigation");
+  redirect("/login?reset=1");
 }

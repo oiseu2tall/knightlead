@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 import { Field, Input } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
 import { loginAction, type AuthFormState } from "../actions";
@@ -12,6 +12,7 @@ export function LoginForm() {
     return result;
   };
   const [state, formAction, pending] = useActionState<AuthFormState, FormData>(wrappedLoginAction, null);
+  const [showPassword, setShowPassword] = useState(false);
   const fe = state?.fieldErrors ?? {};
   return (
     <form action={formAction} className="space-y-4">
@@ -25,13 +26,33 @@ export function LoginForm() {
         />
       </Field>
       <Field label="Password" name="password" error={fe.password}>
-        <Input
-          type="password"
-          name="password"
-          autoComplete="current-password"
-          required
-          invalid={!!fe.password}
-        />
+        <div className="relative">
+          <Input
+            type={showPassword ? "text" : "password"}
+            name="password"
+            autoComplete="current-password"
+            required
+            invalid={!!fe.password}
+            className="pr-10"
+          />
+          <button
+            type="button"
+            onClick={() => setShowPassword(!showPassword)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-ink-muted hover:text-ink focus:outline-none"
+            aria-label={showPassword ? "Hide password" : "Show password"}
+          >
+            {showPassword ? (
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.94 14.66l1.02-1.02a3 3 0 014.24 0l1.02 1.02M12 18a6 6 0 01-6-6c0-2.41.8-4.64 2.12-6.22" />
+              </svg>
+            ) : (
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            )}
+          </button>
+        </div>
       </Field>
 
       {state?.error && (

@@ -38,6 +38,12 @@ export default async function LoginPage() {
             Create an account
           </Link>
         </p>
+        <p className="mt-2 text-center text-sm text-ink-muted">
+          Forgot your password?{" "}
+          <Link href="/forgot-password" className="font-semibold text-brand-500 hover:text-brand-600">
+            Reset it
+          </Link>
+        </p>
       </div>
     </main>
   );
