@@ -1,18 +1,38 @@
-// Mailer abstraction. Uses Nodemailer exclusively:
-//   1. Gmail SMTP (if EMAIL_ADDRESS + EMAIL_APP_PASSWORD are set)
-//   2. Nodemailer SMTP URL (if NODEMAILER_URL is set)
-//   3. Ethereal test inbox (fallback for local development)
-//   4. Console fallback (logs to stdout — guarantees never to fail)
+// Mailer abstraction:
+//   1. Resend API (if RESEND_API_KEY is set)
+//   2. Gmail SMTP (if EMAIL_ADDRESS + EMAIL_APP_PASSWORD are set)
+//   3. Nodemailer SMTP URL (if NODEMAILER_URL is set)
+//   4. Ethereal test inbox (development only)
+//   5. Console fallback (development only — logs to stdout)
 //
-// Uses a FallbackMailer that tries each provider in order. If all real
-// providers fail, the ConsoleMailer ensures the email content is visible
-// for local development and testing.
+// In production, a real mailer must be configured or delivery fails loudly.
 
 type SendArgs = { to: string; subject: string; html: string; text: string };
 
 export interface Mailer {
   send(args: SendArgs): Promise<void>;
   name: string;
+}
+
+class ResendMailer implements Mailer {
+  name = "resend";
+
+  constructor(private apiKey: string, private from: string) {}
+
+  async send({ to, subject, html, text }: SendArgs) {
+    const response = await fetch("https://api.resend.com/emails", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ from: this.from, to, subject, html, text }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Resend API request failed with status ${response.status}`);
+    }
+  }
 }
 
 class NodemailerMailer implements Mailer {
@@ -56,7 +76,7 @@ class EtherealMailer implements Mailer {
 class ConsoleMailer implements Mailer {
   name = "console";
   async send({ to, subject, html, text }: SendArgs) {
-    console.log(`\n[mail] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
+    console.log(`\n[mail] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━`);
     console.log(`[mail] To: ${to}`);
     console.log(`[mail] Subject: ${subject}`);
     console.log(`[mail] Text: ${text}`);
@@ -66,64 +86,94 @@ class ConsoleMailer implements Mailer {
 }
 
 /**
- * Tries a chain of mailers in order. If one fails, logs the error
- * and moves to the next. The last mailer in the chain (ConsoleMailer)
- * always succeeds, ensuring no email-sending failure blocks the user.
+ * Tries a chain of mailers in order. Tracks which mailer actually
+ * delivered so callers can detect if only a dev fallback was used.
  */
 class FallbackMailer implements Mailer {
   name = "fallback";
-  private chain: Mailer[] = [];
+  private chain: Mailer[];
+  lastUsed: Mailer | null = null;
 
   constructor(chain: Mailer[]) {
     this.chain = chain;
   }
 
   async send(args: SendArgs) {
+    let lastError: unknown;
     for (const mailer of this.chain) {
       try {
         await mailer.send(args);
+        this.lastUsed = mailer;
         return; // success — stop trying
       } catch (e) {
+        lastError = e;
         console.warn(`[mail] ${mailer.name} failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
-    // Should never reach here — ConsoleMailer is always last
-    throw new Error("All mailers exhausted");
+    this.lastUsed = null;
+    throw lastError ?? new Error("All mailers exhausted");
+  }
+
+  isRealMailer(): boolean {
+    return this.lastUsed ? this.lastUsed.name !== "console" && this.lastUsed.name !== "ethereal" : false;
   }
 }
 
-let _mailer: Mailer | null = null;
-export async function getMailer(): Promise<Mailer> {
+let _mailer: FallbackMailer | null = null;
+export async function getMailer(): Promise<FallbackMailer> {
   if (_mailer) return _mailer;
-  const from = process.env.MAIL_FROM ?? "noreply@example.com";
+  const from = process.env.MAIL_FROM ?? process.env.EMAIL_ADDRESS ?? "noreply@example.com";
   const chain: Mailer[] = [];
+  const isDev = process.env.NODE_ENV !== "production";
 
-  // 1. Gmail SMTP via Nodemailer
+  // 1. Resend API
+  const resendApiKey = process.env.RESEND_API_KEY;
+  if (resendApiKey) {
+    if (!process.env.MAIL_FROM) {
+      throw new Error("MAIL_FROM must be set to a sender address verified with Resend.");
+    }
+    chain.push(new ResendMailer(resendApiKey, from));
+  }
+
+  // 2. Gmail SMTP via Nodemailer
   const gmailUser = process.env.EMAIL_ADDRESS;
   const gmailPass = process.env.EMAIL_APP_PASSWORD;
   if (gmailUser && gmailPass) {
     const nodemailer = await import("nodemailer");
     const transporter = nodemailer.createTransport({
       host: process.env.EMAIL_HOST ?? "smtp.gmail.com",
-      port: Number(process.env.EMAIL_PORT) ?? 465,
+      port: Number(process.env.EMAIL_PORT) || 465,
       secure: process.env.EMAIL_SECURE !== "false",
       auth: { user: gmailUser, pass: gmailPass },
     });
     chain.push(new NodemailerMailer(transporter, from, "gmail"));
   }
 
-  // 2. Nodemailer SMTP URL (if explicitly set)
+  // 3. Nodemailer SMTP URL (if explicitly set)
   if (process.env.NODEMAILER_URL) {
     const nodemailer = await import("nodemailer");
     chain.push(new NodemailerMailer(nodemailer.createTransport(process.env.NODEMAILER_URL), from, "nodemailer-url"));
   }
 
-  // 3. Ethereal fallback (local dev with real inbox)
-  chain.push(new EtherealMailer());
+  if (isDev) {
+    // 4. Ethereal fallback (local dev with real inbox)
+    chain.push(new EtherealMailer());
 
-  // 4. Console fallback (always succeeds — dev safety net)
-  chain.push(new ConsoleMailer());
+    // 5. Console fallback (always succeeds — dev safety net)
+    chain.push(new ConsoleMailer());
+  } else if (chain.length === 0) {
+    throw new Error(
+      "No email transport configured for production. Set RESEND_API_KEY, EMAIL_ADDRESS + EMAIL_APP_PASSWORD " +
+      "for Gmail SMTP, or NODEMAILER_URL for a custom SMTP server.",
+    );
+  }
 
   _mailer = new FallbackMailer(chain);
   return _mailer;
+}
+
+export function isProductionMailerConfigured(): boolean {
+  return Boolean(process.env.RESEND_API_KEY) ||
+    Boolean(process.env.EMAIL_ADDRESS && process.env.EMAIL_APP_PASSWORD) ||
+    Boolean(process.env.NODEMAILER_URL);
 }
