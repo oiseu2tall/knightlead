@@ -13,18 +13,19 @@ export function ResetPasswordForm() {
   };
   const [state, formAction, pending] = useActionState<ResetPasswordResult, FormData>(wrappedAction, null);
   const [showPassword, setShowPassword] = useState(false);
+  const fieldErrors = state?.fieldErrors ?? {};
   return (
     <form action={formAction} className="space-y-4">
-      <Field label="Email" name="email" error={state?.error ?? undefined}>
+      <Field label="Email" name="email" error={fieldErrors.email}>
         <Input
           type="email"
           name="email"
           autoComplete="email"
           required
-          invalid={!!state?.error}
+          invalid={!!fieldErrors.email}
         />
       </Field>
-      <Field label="Reset code" name="code" error={state?.error ?? undefined}>
+      <Field label="Reset code" name="code" error={fieldErrors.code}>
         <Input
           type="text"
           name="code"
@@ -32,19 +33,25 @@ export function ResetPasswordForm() {
           required
           maxLength={8}
           minLength={8}
-          invalid={!!state?.error}
+          invalid={!!fieldErrors.code}
           placeholder="ABCDEFGH"
           className="w-48 text-center font-mono text-xl"
         />
       </Field>
-      <Field label="New password" name="password" error={state?.error ?? undefined}>
+      <Field
+        label="New password"
+        name="password"
+        error={fieldErrors.password}
+        hint="At least 8 characters with uppercase, lowercase, a number, and a special character."
+      >
         <div className="relative">
           <Input
             type={showPassword ? "text" : "password"}
             name="password"
             autoComplete="new-password"
             required
-            invalid={!!state?.error}
+            minLength={8}
+            invalid={!!fieldErrors.password}
             className="pr-10"
           />
           <button
@@ -67,7 +74,18 @@ export function ResetPasswordForm() {
         </div>
       </Field>
 
-      {state?.error && (
+      <Field label="Confirm new password" name="confirmPassword" error={fieldErrors.confirmPassword}>
+        <Input
+          type="password"
+          name="confirmPassword"
+          autoComplete="new-password"
+          required
+          minLength={8}
+          invalid={!!fieldErrors.confirmPassword}
+        />
+      </Field>
+
+      {state?.error && !state.fieldErrors && (
         <p className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {state.error}
         </p>

@@ -38,7 +38,7 @@ export function RegisterForm() {
         label="Password"
         name="password"
         error={fe.password}
-        hint="At least 8 characters with upper, lower, and a number."
+        hint="At least 8 characters with uppercase, lowercase, a number, and a special character."
       >
         <div className="relative">
           <Input
@@ -68,6 +68,17 @@ export function RegisterForm() {
             )}
           </button>
         </div>
+      </Field>
+
+      <Field label="Confirm password" name="confirmPassword" error={fe.confirmPassword}>
+        <Input
+          type="password"
+          name="confirmPassword"
+          autoComplete="new-password"
+          required
+          minLength={8}
+          invalid={!!fe.confirmPassword}
+        />
       </Field>
 
       {state?.error && (

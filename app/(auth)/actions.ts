@@ -17,14 +17,27 @@ export type AuthFormState = { error?: string; fieldErrors?: Record<string, strin
 
 const registerSchema = z.object({
   name: z.string().trim().min(1, "Required").max(80),
-  email: z.string().email("Enter a valid email").max(255).toLowerCase(),
+  email: z
+    .string()
+    .email("Enter a valid email")
+    .regex(
+      /^[a-zA-Z0-9._%+-]+@(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)+[a-zA-Z]{2,}$/,
+      "Enter an approved email address",
+    )
+    .max(255)
+    .toLowerCase(),
   password: z
     .string()
     .min(8, "At least 8 characters")
     .max(128)
     .regex(/[A-Z]/, "Must contain an uppercase letter")
     .regex(/[a-z]/, "Must contain a lowercase letter")
-    .regex(/[0-9]/, "Must contain a number"),
+    .regex(/[0-9]/, "Must contain a number")
+    .regex(/[^A-Za-z0-9]/, "Must contain a special character"),
+  confirmPassword: z.string().min(1, "Required"),
+}).refine((data) => data.password === data.confirmPassword, {
+  path: ["confirmPassword"],
+  message: "Passwords do not match",
 });
 
 const loginSchema = z.object({
@@ -46,6 +59,7 @@ export async function registerAction(_prev: AuthFormState, formData: FormData): 
     name: formData.get("name"),
     email: formData.get("email"),
     password: formData.get("password"),
+    confirmPassword: formData.get("confirmPassword"),
   });
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
@@ -198,10 +212,19 @@ const resetPasswordSchema = z.object({
     .max(128)
     .regex(/[A-Z]/, "Must contain an uppercase letter")
     .regex(/[a-z]/, "Must contain a lowercase letter")
-    .regex(/[0-9]/, "Must contain a number"),
+    .regex(/[0-9]/, "Must contain a number")
+    .regex(/[^A-Za-z0-9]/, "Must contain a special character"),
+  confirmPassword: z.string().min(1, "Required"),
+}).refine((data) => data.password === data.confirmPassword, {
+  path: ["confirmPassword"],
+  message: "Passwords do not match",
 });
 
-export type ResetPasswordResult = { ok: boolean; error?: string } | null;
+export type ResetPasswordResult = {
+  ok: boolean;
+  error?: string;
+  fieldErrors?: Record<string, string>;
+} | null;
 
 export async function resetPasswordAction(_prev: ResetPasswordResult, formData: FormData): Promise<ResetPasswordResult | void> {
   const ip = await clientIp();
@@ -212,6 +235,7 @@ export async function resetPasswordAction(_prev: ResetPasswordResult, formData: 
     email: formData.get("email"),
     code: formData.get("code"),
     password: formData.get("password"),
+    confirmPassword: formData.get("confirmPassword"),
   });
   if (!parsed.success) {
     const fieldErrors: Record<string, string> = {};
@@ -219,7 +243,11 @@ export async function resetPasswordAction(_prev: ResetPasswordResult, formData: 
       const k = issue.path[0]?.toString() ?? "_";
       if (!fieldErrors[k]) fieldErrors[k] = issue.message;
     }
-    return { ok: false, error: Object.values(fieldErrors)[0] ?? "Invalid input." };
+    return {
+      ok: false,
+      error: Object.values(fieldErrors)[0] ?? "Invalid input.",
+      fieldErrors,
+    };
   }
   const { email, code, password } = parsed.data;
 

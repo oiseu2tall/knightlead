@@ -26,8 +26,11 @@ export function LearnTabs({ tabs, status, onStatus }: {
   const pathname = usePathname();
   return (
     <div className="sticky top-16 z-20 -mx-4 mb-6 border-b border-line bg-surface/85 px-4 backdrop-blur sm:-mx-6 sm:px-6">
-      <div className="flex items-center gap-1 overflow-x-auto py-1">
-        <nav aria-label="Section" className="flex min-w-0 items-center gap-1">
+      <div className="flex flex-col gap-2 py-2 sm:flex-row sm:items-center sm:gap-1 sm:py-1">
+        <nav
+          aria-label="Section"
+          className="grid min-w-0 grid-cols-3 gap-1 rounded-xl border border-line bg-surface-muted p-1 sm:flex sm:items-center sm:border-0 sm:bg-transparent sm:p-0"
+        >
           {tabs.map((t) => {
             const I = Icon[t.icon];
             const active = pathname === t.href;
@@ -37,23 +40,23 @@ export function LearnTabs({ tabs, status, onStatus }: {
                 href={t.href}
                 aria-current={active ? "page" : undefined}
                 className={[
-                  "group relative inline-flex shrink-0 items-center gap-1.5 px-3 py-3 text-sm font-medium transition-colors",
+                  "group relative inline-flex min-h-11 min-w-0 flex-col items-center justify-center gap-1 rounded-lg px-1 py-1.5 text-center text-xs font-medium transition-colors sm:min-h-0 sm:shrink-0 sm:flex-row sm:gap-1.5 sm:px-3 sm:py-3 sm:text-sm sm:text-left",
                   active
-                    ? "text-brand-600 dark:text-brand-200"
-                    : "text-ink-muted hover:text-ink",
+                    ? "bg-surface text-brand-700 shadow-[var(--shadow-card)] dark:text-brand-200 sm:bg-transparent sm:text-brand-600 sm:shadow-none"
+                    : "text-ink-muted hover:bg-surface/70 hover:text-ink sm:hover:bg-transparent",
                 ].join(" ")}
               >
-                <I className="h-4 w-4" />
-                <span>{t.label}</span>
+                <I className="h-4 w-4 shrink-0" />
+                <span className="truncate">{t.label}</span>
                 {t.count !== undefined && (
-                  <span className="rounded-full bg-surface-dim px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-ink">
+                  <span className="rounded-full bg-surface-dim px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-ink sm:inline-flex">
                     {t.count}
                   </span>
                 )}
                 <span
                   aria-hidden="true"
                   className={[
-                    "absolute inset-x-3 -bottom-px h-0.5 rounded-full transition-opacity",
+                    "absolute inset-x-3 -bottom-px hidden h-0.5 rounded-full transition-opacity sm:block",
                     active
                       ? "bg-brand-500 opacity-100"
                       : "bg-brand-500 opacity-0 group-hover:opacity-50",
@@ -63,7 +66,7 @@ export function LearnTabs({ tabs, status, onStatus }: {
             );
           })}
         </nav>
-        <div className="ml-auto flex shrink-0 items-center gap-1">
+        <div className="grid grid-cols-3 gap-1 rounded-xl border border-line bg-surface-muted p-1 sm:ml-auto sm:flex sm:shrink-0 sm:items-center sm:gap-1 sm:border-0 sm:bg-transparent sm:p-0">
           {(["all", "ACTIVE", "COMPLETED"] as const).map((s) => {
             const active = status === s;
             return (
@@ -72,10 +75,10 @@ export function LearnTabs({ tabs, status, onStatus }: {
                 type="button"
                 onClick={() => onStatus(s)}
                 className={[
-                  "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                  "inline-flex min-h-10 min-w-0 items-center justify-center rounded-lg px-1 py-1 text-center text-xs font-medium transition-colors sm:min-h-0 sm:gap-1.5 sm:rounded-full sm:border sm:px-2.5 sm:py-1",
                   active
-                    ? "border-brand-500 bg-brand-50 text-brand-700 dark:bg-brand-500/10 dark:text-brand-200"
-                    : "border-line bg-surface text-ink-muted hover:bg-surface-dim",
+                    ? "bg-surface text-brand-700 shadow-[var(--shadow-card)] dark:text-brand-200 sm:border-brand-500 sm:bg-brand-50 sm:shadow-none sm:dark:bg-brand-500/10"
+                    : "text-ink-muted hover:bg-surface/70 sm:border-line sm:bg-surface sm:hover:bg-surface-dim",
                 ].join(" ")}
               >
                 {s === "all" ? "All" : s === "ACTIVE" ? "In progress" : "Completed"}
