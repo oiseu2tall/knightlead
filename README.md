@@ -23,7 +23,7 @@ A full-stack Learning Management System for cohort-based bootcamps. Built on **N
 - 🔐 **Enrollment approval** — a self-enrollment starts in `PENDING` and unlocks nothing until a manager or admin approves it; the approver and timestamp are recorded. Students can cancel their own pending request; managers can approve, decline, or move a seat to another cohort. Staff-placed students are created `ACTIVE` immediately.
 - 🔒 **Admin panel** — user search, role filter chips, pagination, inline role change (with audit log), per-user detail with enrollments / submissions / audit timeline, suspend/activate toggle. ADMIN only.
 - 📎 **Cloudinary file storage** — uploads go **direct from the browser** using a server-minted signature, so no file ever passes through a Next.js request body. HMAC-signed download tokens, MIME allowlist, **10 MB per file appwide**, enforced by a signed upload preset
-- ✉️ **Email verification** — OTP-style (8-char code, no prefix), Nodemailer via Gmail SMTP, fallback chain (Gmail → Ethereal → console), auto-redirect to `/verify-email/pending` until verified
+- ✉️ **Email verification** — OTP-style (8-char code, no prefix), sent through Gmail or custom SMTP with Nodemailer; development-only Ethereal/console fallbacks; auto-redirect to `/verify-email/pending` until verified
 - 🔑 **Password reset** — request an 8-char reset code by email (30-min TTL, max 5 attempts), enter it with a new password at `/reset-password`, code is consumed atomically on use. Rate-limited per IP on both request and verify.
 - 🛡️ **Security** — proxy-based route gating + server-side re-checks in every layout/action, Zod validation everywhere, per-IP and per-user rate limits (Postgres-backed), `X-Content-Type-Options: nosniff`, HTTP-only cookies
 - 🚀 **CSS-only long-list virtualization** — `content-visibility: auto` on card grids and table rows; "Show more" pagination via the `<LongList>` component
@@ -223,7 +223,7 @@ The `<Modal>` component is a thin wrapper over the native `<dialog>` element. Ev
 | Auth        | Auth.js v5 (`next-auth@5.0.0-beta.31`)  |
 | Database    | PostgreSQL 16 via Prisma 6              |
 | Validation  | Zod                                      |
-| Mailer      | Nodemailer (Gmail SMTP) with fallback chain     |
+| Mailer      | Nodemailer (Gmail or custom SMTP; no Resend API) |
 | Storage     | Local disk (`./uploads`)                |
 | Rate limit  | Postgres sliding window                 |
 | Run scripts | `tsx` + `cross-env`                     |
@@ -253,7 +253,10 @@ npm install
 cp .env.example .env.local
 # Edit .env.local — at minimum set DATABASE_URL, AUTH_SECRET, and a mail provider.
 # (Prisma CLI reads .env via prisma.config.ts; Next.js reads both .env and .env.local.)
-# For email, set RESEND_API_KEY and a MAIL_FROM address verified in Resend.
+# For email, configure Gmail SMTP with EMAIL_ADDRESS + EMAIL_APP_PASSWORD,
+# or set NODEMAILER_URL for another SMTP server.
+# Production requires one of those SMTP transports; Ethereal and console
+# fallbacks are development-only.
 
 # Generate AUTH_SECRET with:
 openssl rand -base64 32
@@ -354,12 +357,11 @@ See [`.env.example`](.env.example) for the full list. Key ones:
 | `DATABASE_URL`     | Postgres connection string                             |
 | `AUTH_SECRET`      | 32+ random bytes; signs session JWTs and file tokens   |
 | `AUTH_URL`         | Public base URL (used in verification emails)          |
-| `RESEND_API_KEY`   | API key for Resend transactional email (recommended) |
-| `MAIL_FROM`        | Verified `From:` address for transactional email       |
-| `EMAIL_ADDRESS`    | Optional Gmail address for Nodemailer SMTP            |
-| `EMAIL_APP_PASSWORD` | Optional Gmail app-specific password for Nodemailer |
-| `NODEMAILER_URL`   | Optional custom SMTP URL                               |
-| `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_SECURE` | Optional Gmail SMTP overrides |
+| `MAIL_FROM`        | Optional sender address (defaults to `EMAIL_ADDRESS`)   |
+| `EMAIL_ADDRESS`    | Gmail SMTP username and default sender address         |
+| `EMAIL_APP_PASSWORD` | Gmail app-specific password for Nodemailer           |
+| `NODEMAILER_URL`   | Custom SMTP URL (alternative to Gmail SMTP)             |
+| `EMAIL_HOST` / `EMAIL_PORT` / `EMAIL_SECURE` | Gmail SMTP overrides |
 | `UPLOAD_DIR`       | Local file storage path (unused — storage is Cloudinary now)     |
 | `CLOUDINARY_CLOUD_NAME` | Cloudinary account/cloud name                           |
 | `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` | Sign upload and delete requests        |
@@ -473,7 +475,7 @@ lib/
   rate-limit.ts                 Postgres sliding-window rate limiter
   email-verification.ts         OTP code issue/consume (single-use, 15-min TTL)
   password-reset.ts             Password reset OTP issue/verify/consume (single-use, 30-min TTL)
-  mailer.ts                     Pluggable transport (Gmail SMTP → Ethereal → console)
+  mailer.ts                     SMTP transports (Gmail/custom); dev-only Ethereal/console fallbacks
   role.ts                       ROLE_META + roleLabel/roleSection helpers (UI-only)
   use-upload.ts                 Client upload hook (React state machine)
 
@@ -636,7 +638,7 @@ Before going live:
 - [ ] Build command is `npx prisma migrate deploy && npm run build` so the schema and the admin bootstrap are applied before the deploy goes live
 - [ ] Configure `CLOUDINARY_CLOUD_NAME` / `CLOUDINARY_API_KEY` / `CLOUDINARY_API_SECRET` — without them uploads return `storage_not_configured` (503) and downloads 502
 - [ ] Create a Cloudinary upload preset with `max_file_size: 10485760`, `folder: knightlead`, and `allowed_formats`, then set `CLOUDINARY_UPLOAD_PRESET`. Without it the 10MB limit is advisory — the per-request `max_file_size` is unsigned and a deliberate client can drop it
-- [ ] Configure `RESEND_API_KEY` and a verified `MAIL_FROM` sender, or use `EMAIL_ADDRESS` + `EMAIL_APP_PASSWORD` for Gmail SMTP / `NODEMAILER_URL` for custom SMTP
+- [ ] Configure `EMAIL_ADDRESS` + `EMAIL_APP_PASSWORD` for Gmail SMTP, or `NODEMAILER_URL` for another SMTP server; set `MAIL_FROM` if needed. Add the values to Vercel's Production environment and redeploy. Ethereal and console fallbacks are development-only.
 - [ ] Run behind HTTPS (sets the `Secure` cookie flag)
 - [ ] Add CSP, HSTS, `X-Frame-Options: DENY` via `next.config.ts` `headers()`
 - [ ] **Videos are capped at 10MB like everything else.** That is roughly one minute of a low-bitrate screen recording — long enough for a clip, far too short for a full lecture. Longer recordings must be split into one video per part, or the per-type limit has to be relaxed in [lib/upload-config.ts](lib/upload-config.ts)
