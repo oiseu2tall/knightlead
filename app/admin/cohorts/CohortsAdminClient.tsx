@@ -13,8 +13,7 @@ import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { SubNav } from "@/components/layout/SubNav";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { CohortFormFields, type CohortFormData } from "./CohortForm";
-import { deleteCohort } from "../catalog/actions";
+import { CohortFormFields, DeleteCohortButton, type CohortFormData } from "./CohortForm";
 
 type Manager = { id: string; name: string | null; email: string; role: string };
 type Course = { id: string; title: string; slug: string };
@@ -43,7 +42,6 @@ type Props = {
 };
 
 export default function CohortsAdminClient({ initialCohorts, courses, managers, role }: Props) {
-  const router = useRouter();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | Cohort["status"]>("all");
   const [createOpen, setCreateOpen] = useState(false);
@@ -156,7 +154,6 @@ export default function CohortsAdminClient({ initialCohorts, courses, managers, 
               key={c.id}
               cohort={c}
               onEdit={() => setEditing(c)}
-              onAfterDelete={() => router.refresh()}
             />
           ))}
         </div>
@@ -216,11 +213,9 @@ function cohortToFormData(c: Cohort): CohortFormData {
 function CohortCard({
   cohort,
   onEdit,
-  onAfterDelete,
 }: {
   cohort: Cohort;
   onEdit: () => void;
-  onAfterDelete: () => void;
 }) {
   const router = useRouter();
   const tone =
@@ -262,25 +257,6 @@ function CohortCard({
                 icon: <Icon.Layers className="h-4 w-4" />,
                 onClick: () => router.push(`/admin/cohorts/${cohort.id}`),
               },
-              { kind: "separator" },
-              {
-                label: "Delete",
-                icon: <Icon.Trash className="h-4 w-4" />,
-                danger: true,
-                disabled: cohort.enrollmentCount > 0,
-                onClick: async () => {
-                  if (!confirm(`Delete "${cohort.name}"? This cannot be undone.`)) return;
-                  const fd = new FormData();
-                  fd.set("id", cohort.id);
-                  const res = await deleteCohort(fd);
-                  if (!res.ok) {
-                    alert(res.error);
-                    return;
-                  }
-                  onAfterDelete();
-                  router.refresh();
-                },
-              },
             ]}
           />
         </div>
@@ -314,13 +290,16 @@ function CohortCard({
             ? `${cohort.enrollmentCount} ${cohort.enrollmentCount === 1 ? "enrollment" : "enrollments"}`
             : `${cohort.enrollmentCount}/${cohort.capacity} seats`}
         </span>
-        <button
-          type="button"
-          onClick={onEdit}
-          className="font-semibold text-brand-500 hover:text-brand-600"
-        >
-          Edit →
-        </button>
+        <div className="flex items-center gap-2">
+          <DeleteCohortButton id={cohort.id} disabled={cohort.enrollmentCount > 0} />
+          <button
+            type="button"
+            onClick={onEdit}
+            className="font-semibold text-brand-500 hover:text-brand-600"
+          >
+            Edit →
+          </button>
+        </div>
       </div>
     </Card>
   );

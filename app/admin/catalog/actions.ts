@@ -68,6 +68,22 @@ export async function upsertCohort(formData: FormData): Promise<CatalogResult> {
   const limited = await checkCatalogWriteRate(actor.id, "cohort");
   if (!limited.ok) return { ok: false, error: "Too many edits — slow down." };
 
+  const isCreate = !formData.get("id");
+  if (isCreate) {
+    const name = formData.get("name");
+    const slug = formData.get("slug");
+    const description = formData.get("description");
+    if (typeof name === "string" && !/^[\p{L}\p{N} ]+$/u.test(name)) {
+      return { ok: false, error: "Name can only contain letters, numbers, and spaces" };
+    }
+    if (typeof slug === "string" && slug !== "" && !/^[\p{L}\p{N} .-]+$/u.test(slug)) {
+      return { ok: false, error: "Slug can only contain letters, numbers, spaces, periods, and dashes" };
+    }
+    if (typeof description === "string" && !/^[\p{L}\p{N} .-]*$/u.test(description)) {
+      return { ok: false, error: "Description can only contain letters, numbers, spaces, periods, and dashes" };
+    }
+  }
+
   const parsed = cohortSchema.safeParse({
     id: formData.get("id") || undefined,
     courseId: formData.get("courseId"),
@@ -98,7 +114,11 @@ export async function upsertCohort(formData: FormData): Promise<CatalogResult> {
   if (!course) return { ok: false, error: "Course not found" };
 
   // Slug: explicit, or derived. Must be unique.
-  const baseSlug = (data.slug && data.slug.length > 0 ? data.slug : slugify(data.name)) || `cohort-${Date.now()}`;
+  const baseSlug = (
+    data.slug && data.slug.length > 0
+      ? data.slug.replace(/ +/g, "-")
+      : slugify(data.name)
+  ) || `cohort-${Date.now()}`;
   const finalSlug = await ensureUniqueCohortSlug(baseSlug, data.id);
 
   // Resolve manager: blank string → null; otherwise must be an actual MANAGER/ADMIN.
@@ -247,6 +267,22 @@ export async function upsertCourse(formData: FormData): Promise<CatalogResult> {
   const actor = await requireRole("MANAGER", "ADMIN");
   const limited = await checkCatalogWriteRate(actor.id, "course");
   if (!limited.ok) return { ok: false, error: "Too many edits — slow down." };
+
+  const isCreate = !formData.get("id");
+  if (isCreate) {
+    const title = formData.get("title");
+    const slug = formData.get("slug");
+    const description = formData.get("description");
+    if (typeof title === "string" && !/^[\p{L}\p{N} ]+$/u.test(title)) {
+      return { ok: false, error: "Title can only contain letters, numbers, and spaces" };
+    }
+    if (typeof slug === "string" && slug !== "" && !/^[\p{L}\p{N}.-]+$/u.test(slug)) {
+      return { ok: false, error: "Slug can only contain letters, numbers, periods, and dashes" };
+    }
+    if (typeof description === "string" && !/^[\p{L}\p{N} .-]*$/u.test(description)) {
+      return { ok: false, error: "Description can only contain letters, numbers, spaces, periods, and dashes" };
+    }
+  }
 
   const parsed = courseSchema.safeParse({
     id: formData.get("id") || undefined,

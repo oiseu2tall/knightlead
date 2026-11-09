@@ -13,8 +13,7 @@ import { DropdownMenu } from "@/components/ui/DropdownMenu";
 import { SearchInput } from "@/components/ui/SearchInput";
 import { SubNav } from "@/components/layout/SubNav";
 import { Icon, type IconName } from "@/components/ui/Icon";
-import { CourseFormFields, type CourseFormData } from "./CourseForm";
-import { deleteCourse } from "../catalog/actions";
+import { CourseFormFields, DeleteCourseButton, type CourseFormData } from "./CourseForm";
 
 type Person = { id: string; name: string | null; email: string; role: string };
 export type Course = {
@@ -41,7 +40,6 @@ type Props = {
 };
 
 export default function CoursesAdminClient({ initialCourses, instructors, managers, role }: Props) {
-  const router = useRouter();
   const [query, setQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | "published" | "draft">("all");
   const [createOpen, setCreateOpen] = useState(false);
@@ -151,7 +149,6 @@ export default function CoursesAdminClient({ initialCourses, instructors, manage
               key={c.id}
               course={c}
               onEdit={() => setEditing(c)}
-              onAfterDelete={() => router.refresh()}
             />
           ))}
         </div>
@@ -207,103 +204,104 @@ function courseToFormData(c: Course): CourseFormData {
 function CourseCard({
   course,
   onEdit,
-  onAfterDelete,
 }: {
   course: Course;
   onEdit: () => void;
-  onAfterDelete: () => void;
 }) {
   const router = useRouter();
   const tone = course.isPublished ? "success" : "neutral";
 
   return (
-    <Card className="card-hover relative flex h-full flex-col overflow-hidden">
-      <div className="-mx-6 -mt-6 mb-3 h-20 bg-gradient-to-br from-brand-100 via-brand-50 to-accent-50 dark:from-brand-500/15 dark:via-brand-500/5 dark:to-accent-500/10" />
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <h3 className="line-clamp-2 text-base font-semibold text-ink">{course.title}</h3>
-          <p className="truncate text-xs text-ink-muted">/{course.slug}</p>
-        </div>
-        <div className="flex items-center gap-1">
-          <Badge tone={tone}>{course.isPublished ? "published" : "draft"}</Badge>
-          <DropdownMenu
-            ariaLabel={`Actions for ${course.title}`}
-            items={[
-              {
-                label: "Edit details",
-                icon: <Icon.Edit className="h-4 w-4" />,
-                onClick: onEdit,
-              },
-              {
-                label: "Manage modules",
-                icon: <Icon.Layers className="h-4 w-4" />,
-                onClick: () => router.push(`/admin/courses/${course.slug}`),
-              },
-              { kind: "separator" },
-              {
-                label: "Delete",
-                icon: <Icon.Trash className="h-4 w-4" />,
-                danger: true,
-                // Cohorts cascade with the course, and a course with any
-                // cohort or seat attached can't be deleted at all.
-                disabled: course.cohortCount > 0 || course.enrollmentCount > 0,
-                onClick: async () => {
-                  if (!confirm(`Delete "${course.title}"? This cannot be undone.`)) return;
-                  const fd = new FormData();
-                  fd.set("id", course.id);
-                  const res = await deleteCourse(fd);
-                  if (!res.ok) {
-                    alert(res.error);
-                    return;
-                  }
-                  onAfterDelete();
-                  router.refresh();
+    <Card className="card-hover relative flex h-full flex-col overflow-hidden p-0">
+      <div className="relative overflow-hidden border-b border-line bg-gradient-to-br from-brand-50 via-white to-accent-50 px-5 pb-4 pt-5 dark:from-brand-500/15 dark:via-surface dark:to-accent-500/10">
+        <div
+          aria-hidden="true"
+          className="pointer-events-none absolute -right-8 -top-12 h-36 w-36 rounded-full border-[18px] border-white/30 dark:border-white/5"
+        />
+        <div className="relative flex items-start justify-between gap-3">
+          <div className="flex h-11 w-11 items-center justify-center rounded-xl border border-white/70 bg-white/80 text-brand-600 shadow-sm dark:border-line dark:bg-surface/80 dark:text-brand-300">
+            <Icon.School className="h-5 w-5" />
+          </div>
+          <div className="flex items-center gap-1">
+            <Badge tone={tone}>{course.isPublished ? "Published" : "Draft"}</Badge>
+            <DropdownMenu
+              ariaLabel={`Actions for ${course.title}`}
+              items={[
+                {
+                  label: "Edit details",
+                  icon: <Icon.Edit className="h-4 w-4" />,
+                  onClick: onEdit,
                 },
-              },
-            ]}
-          />
+                {
+                  label: "Manage modules",
+                  icon: <Icon.Layers className="h-4 w-4" />,
+                  onClick: () => router.push(`/admin/courses/${course.slug}`),
+                },
+              ]}
+            />
+          </div>
+        </div>
+        <div className="relative mt-5 min-w-0">
+          <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-brand-700 dark:text-brand-300">
+            Course
+          </p>
+          <h3 className="mt-1 line-clamp-2 min-h-14 text-lg font-bold leading-7 tracking-tight text-ink">
+            {course.title}
+          </h3>
+          <p className="mt-2 inline-flex max-w-full items-center rounded-md border border-line/80 bg-white/70 px-2 py-1 font-mono text-[11px] text-ink-muted dark:bg-surface/70">
+            <span className="truncate">/{course.slug}</span>
+          </p>
         </div>
       </div>
 
-      {course.description && (
-        <p className="mt-2 line-clamp-2 text-sm text-ink-muted">{course.description}</p>
-      )}
+      <div className="flex flex-1 flex-col p-5">
+        <p className="line-clamp-2 min-h-10 text-sm leading-5 text-ink-muted">
+          {course.description || "No course description added yet."}
+        </p>
 
-      <dl className="mt-3 grid grid-cols-2 gap-2 text-xs">
-        <div className="rounded-lg border border-line bg-surface-muted px-2.5 py-1.5">
-          <dt className="text-ink-muted">Instructor</dt>
-          <dd className="truncate font-medium text-ink">
-            {course.instructor.name ?? course.instructor.email}
-          </dd>
-        </div>
-        <div className="rounded-lg border border-line bg-surface-muted px-2.5 py-1.5">
-          <dt className="text-ink-muted">Manager</dt>
-          <dd className="truncate font-medium text-ink">
-            {course.manager ? course.manager.name ?? course.manager.email : "— Unassigned —"}
-          </dd>
-        </div>
-      </dl>
+        <dl className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <div className="min-w-0 rounded-xl border border-line bg-surface-muted/70 px-3 py-2.5 dark:bg-surface-dim/60">
+            <dt className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted">Instructor</dt>
+            <dd className="mt-1 truncate text-sm font-medium text-ink">
+              {course.instructor.name ?? course.instructor.email}
+            </dd>
+          </div>
+          <div className="min-w-0 rounded-xl border border-line bg-surface-muted/70 px-3 py-2.5 dark:bg-surface-dim/60">
+            <dt className="text-[10px] font-semibold uppercase tracking-wider text-ink-muted">Manager</dt>
+            <dd className="mt-1 truncate text-sm font-medium text-ink">
+              {course.manager ? course.manager.name ?? course.manager.email : "Unassigned"}
+            </dd>
+          </div>
+        </dl>
 
-      <div className="mt-auto flex items-center justify-between border-t border-line pt-3 text-xs text-ink-muted">
-        <div className="flex items-center gap-3">
-          <span className="inline-flex items-center gap-1">
-            <Icon.Layers className="h-4 w-4" />
-            {course.moduleCount} {course.moduleCount === 1 ? "module" : "modules"}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            <Icon.Group className="h-4 w-4" />
-            {course.cohortCount} {course.cohortCount === 1 ? "cohort" : "cohorts"}
-          </span>
-          <span className="inline-flex items-center gap-1">
-            {course.enrollmentCount} {course.enrollmentCount === 1 ? "seat" : "seats"}
-          </span>
+        <dl className="mt-4 grid grid-cols-3 divide-x divide-line rounded-xl border border-line bg-surface-muted/50 py-2.5 dark:bg-surface-dim/40">
+          <div className="px-2 text-center">
+            <dd className="text-base font-bold tabular-nums text-ink">{course.moduleCount}</dd>
+            <dt className="mt-0.5 text-[10px] font-medium text-ink-muted">Modules</dt>
+          </div>
+          <div className="px-2 text-center">
+            <dd className="text-base font-bold tabular-nums text-ink">{course.cohortCount}</dd>
+            <dt className="mt-0.5 text-[10px] font-medium text-ink-muted">Cohorts</dt>
+          </div>
+          <div className="px-2 text-center">
+            <dd className="text-base font-bold tabular-nums text-ink">{course.enrollmentCount}</dd>
+            <dt className="mt-0.5 text-[10px] font-medium text-ink-muted">Seats</dt>
+          </div>
+        </dl>
+
+        <div className="mt-auto flex items-center justify-between gap-3 border-t border-line pt-4">
+          <DeleteCourseButton
+            id={course.id}
+            disabled={course.cohortCount > 0 || course.enrollmentCount > 0}
+          />
+          <Link
+            href={`/admin/courses/${course.slug}`}
+            className="inline-flex h-9 items-center gap-2 rounded-lg bg-brand-500 px-3.5 text-sm font-semibold text-white transition-colors hover:bg-brand-600 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-500"
+          >
+            Manage course
+            <Icon.ArrowRight className="h-4 w-4" />
+          </Link>
         </div>
-        <Link
-          href={`/admin/courses/${course.slug}`}
-          className="font-semibold text-brand-500 hover:text-brand-600"
-        >
-          Modules →
-        </Link>
       </div>
     </Card>
   );

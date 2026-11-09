@@ -16,10 +16,8 @@ function slugify(input: string): string {
   return input
     .toLowerCase()
     .trim()
-    .replace(/[^a-z0-9\s-]/g, "")
+    .replace(/[^\p{L}\p{N}.\s-]/gu, "")
     .replace(/\s+/g, "-")
-    .replace(/-+/g, "-")
-    .replace(/^-+|-+$/g, "")
     .slice(0, 80);
 }
 
@@ -59,6 +57,7 @@ export function CohortFormFields({
   const [error, setError] = useState<string | null>(null);
   const [name, setName] = useState(initial?.name ?? "");
   const [slug, setSlug] = useState(initial?.slug ?? "");
+  const [description, setDescription] = useState(initial?.description ?? "");
   // Whether the manager has typed in the slug field. Until they do, the
   // slug tracks the name. Derived during render rather than in an effect:
   // an effect that calls setState forces a second render pass on every
@@ -84,7 +83,7 @@ export function CohortFormFields({
           if (!initial?.id) {
             // Reset fields for repeated "create" use. Clearing the touched
             // flag returns the slug to auto-derived mode.
-            setName(""); setSlug(""); setSlugTouched(false);
+            setName(""); setSlug(""); setSlugTouched(false); setDescription("");
             (e.target as HTMLFormElement).reset();
           }
         });
@@ -119,22 +118,44 @@ export function CohortFormFields({
         </select>
       </Field>
 
-      <Field label="Name" name="name">
+      <Field
+        label="Name"
+        name="name"
+        hint={initial?.id ? undefined : "Letters, numbers, and spaces only."}
+      >
         <Input
           name="name"
           required
           maxLength={120}
           value={name}
-          onChange={(e) => setName(e.target.value)}
+          onChange={(e) =>
+            setName(
+              initial?.id
+                ? e.target.value
+                : e.target.value.replace(/[^\p{L}\p{N} ]/gu, ""),
+            )
+          }
         />
       </Field>
-      <Field label="Slug" name="slug" hint="Leave blank to auto-generate from the name">
+      <Field
+        label="Slug"
+        name="slug"
+        hint={
+          initial?.id
+            ? "Leave blank to auto-generate from the name."
+            : "Letters, numbers, spaces, periods, and dashes only. Leave blank to auto-generate from the name."
+        }
+      >
         <Input
           name="slug"
           maxLength={80}
           value={effectiveSlug}
           onChange={(e) => {
-            setSlug(e.target.value);
+            setSlug(
+              initial?.id
+                ? e.target.value
+                : e.target.value.replace(/[^\p{L}\p{N} .-]/gu, ""),
+            );
             setSlugTouched(true);
           }}
         />
@@ -187,12 +208,27 @@ export function CohortFormFields({
         </span>
       </label>
 
-      <Field label="Description" name="description">
+      <Field
+        label="Description"
+        name="description"
+        hint={
+          initial?.id
+            ? undefined
+            : "Letters, numbers, spaces, periods, and dashes only."
+        }
+      >
         <Textarea
           name="description"
           rows={3}
           maxLength={2000}
-          defaultValue={initial?.description ?? ""}
+          value={description}
+          onChange={(e) =>
+            setDescription(
+              initial?.id
+                ? e.target.value
+                : e.target.value.replace(/[^\p{L}\p{N} .-]/gu, ""),
+            )
+          }
         />
       </Field>
       <Field label="Manager" name="managerId" hint="Optional. Must be a MANAGER or ADMIN.">

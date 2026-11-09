@@ -2,13 +2,24 @@
 
 // Course form — fields only; the page wraps it in a <Modal>.
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/Button";
 import { Field, Input, Textarea } from "@/components/ui/Field";
 import { upsertCourse, deleteCourse } from "../catalog/actions";
 
 type Person = { id: string; name: string | null; email: string; role: string };
+
+function slugifyTitle(value: string): string {
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^\p{L}\p{N}\s.-]/gu, "")
+    .replace(/\s+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 80);
+}
 
 export type CourseFormData = {
   id?: string;
@@ -37,21 +48,9 @@ export function CourseFormFields({
   const [error, setError] = useState<string | null>(null);
   const [title, setTitle] = useState(initial?.title ?? "");
   const [slug, setSlug] = useState(initial?.slug ?? "");
-
-  // Auto-derive a slug from the title when the slug field is empty.
-  useEffect(() => {
-    if (initial?.id) return;
-    if (slug.length > 0) return;
-    const derived = title
-      .toLowerCase()
-      .trim()
-      .replace(/[^a-z0-9\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .replace(/-+/g, "-")
-      .replace(/^-+|-+$/g, "")
-      .slice(0, 80);
-    setSlug(derived);
-  }, [title, slug, initial?.id]);
+  const [description, setDescription] = useState(initial?.description ?? "");
+  const [slugTouched, setSlugTouched] = useState(Boolean(initial?.id || initial?.slug));
+  const effectiveSlug = slugTouched ? slug : slugifyTitle(title);
 
   return (
     <form
@@ -70,29 +69,69 @@ export function CourseFormFields({
     >
       {initial?.id && <input type="hidden" name="id" value={initial.id} />}
 
-      <Field label="Title" name="title">
+      <Field
+        label="Title"
+        name="title"
+        hint={initial?.id ? undefined : "Letters, numbers, and spaces only."}
+      >
         <Input
           name="title"
           required
           maxLength={160}
           value={title}
-          onChange={(e) => setTitle(e.target.value)}
+          onChange={(e) =>
+            setTitle(
+              initial?.id
+                ? e.target.value
+                : e.target.value.replace(/[^\p{L}\p{N} ]/gu, ""),
+            )
+          }
         />
       </Field>
-      <Field label="Slug" name="slug" hint="Leave blank to auto-generate from the title">
+      <Field
+        label="Slug"
+        name="slug"
+        hint={
+          initial?.id
+            ? "Leave blank to auto-generate from the title."
+            : "Letters, numbers, periods, and dashes only. Leave blank to auto-generate from the title."
+        }
+      >
         <Input
           name="slug"
           maxLength={80}
-          value={slug}
-          onChange={(e) => setSlug(e.target.value)}
+          value={effectiveSlug}
+          onChange={(e) => {
+            setSlug(
+              initial?.id
+                ? e.target.value
+                : e.target.value.replace(/[^\p{L}\p{N}.-]/gu, ""),
+            );
+            setSlugTouched(true);
+          }}
         />
       </Field>
-      <Field label="Description" name="description">
+      <Field
+        label="Description"
+        name="description"
+        hint={
+          initial?.id
+            ? undefined
+            : "Letters, numbers, spaces, periods, and dashes only."
+        }
+      >
         <Textarea
           name="description"
           rows={3}
           maxLength={4000}
-          defaultValue={initial?.description ?? ""}
+          value={description}
+          onChange={(e) =>
+            setDescription(
+              initial?.id
+                ? e.target.value
+                : e.target.value.replace(/[^\p{L}\p{N} .-]/gu, ""),
+            )
+          }
         />
       </Field>
       <Field label="Thumbnail URL" name="thumbnailUrl">
