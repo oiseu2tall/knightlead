@@ -16,7 +16,12 @@ import { createPasswordResetCode, verifyPasswordResetCode, resetUserPassword } f
 export type AuthFormState = { error?: string; fieldErrors?: Record<string, string> } | null;
 
 const registerSchema = z.object({
-  name: z.string().trim().min(1, "Required").max(80),
+  name: z
+    .string()
+    .trim()
+    .min(1, "Required")
+    .max(80)
+    .regex(/^[\p{L} ]+$/u, "Only letters and spaces are allowed"),
   email: z
     .string()
     .email("Enter a valid email")
@@ -153,14 +158,12 @@ export async function loginAction(_prev: AuthFormState, formData: FormData): Pro
   }
   const { email, password } = parsed.data;
 
-  // Pre-check: if the user exists but email isn't verified, block login.
+  // Keep the account's verification state, but authenticate before acting
+  // on it so unauthenticated users cannot use this check to probe accounts.
   const dbUser = await db.user.findUnique({
     where: { email },
     select: { emailVerified: true },
   });
-  if (dbUser && !dbUser.emailVerified) {
-    return { error: "Please verify your email first. We sent a code after registration." };
-  }
 
   try {
     await signIn("credentials", { email, password, redirect: false });
@@ -171,6 +174,7 @@ export async function loginAction(_prev: AuthFormState, formData: FormData): Pro
     throw e;
   }
   const { redirect } = await import("next/navigation");
+  if (dbUser && !dbUser.emailVerified) redirect("/verify-email");
   redirect("/dashboard");
 }
 

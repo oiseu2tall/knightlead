@@ -4,6 +4,7 @@ import { auth } from "@/auth";
 import { redirect } from "next/navigation";
 import { Card, PageHeader } from "@/components/ui/Primitives";
 import { VerifyOtpForm } from "./VerifyOtpForm";
+import { SignOutButton } from "./pending/SignOutButton";
 
 export const metadata = { title: "Verify email · KnightLead" };
 
@@ -23,11 +24,12 @@ export default async function VerifyEmailPage() {
         />
         <VerifyOtpForm email={email} />
         <p className="mt-4 text-sm text-ink-muted">
-          Didn't get the code?{" "}
+          Didn&apos;t get the code?{" "}
           <a href="/verify-email/pending" className="font-semibold text-brand-500 hover:text-brand-600">
             Resend
           </a>
         </p>
+        <SignOutButton />
       </Card>
     </main>
   );

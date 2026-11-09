@@ -13,12 +13,26 @@ export function RegisterForm() {
   };
   const [state, formAction, pending] = useActionState<AuthFormState, FormData>(wrappedRegisterAction, null);
   const [showPassword, setShowPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
+  const [formValues, setFormValues] = useState({
+    name: "",
+    email: "",
+    password: "",
+    confirmPassword: "",
+  });
   const fe = state?.fieldErrors ?? {};
   return (
     <form action={formAction} className="space-y-4">
       <Field label="Full name" name="name" error={fe.name}>
         <Input
           name="name"
+          value={formValues.name}
+          onChange={(event) =>
+            setFormValues((values) => ({
+              ...values,
+              name: event.target.value.replace(/[^\p{L} ]/gu, ""),
+            }))
+          }
           autoComplete="name"
           required
           maxLength={80}
@@ -29,6 +43,8 @@ export function RegisterForm() {
         <Input
           type="email"
           name="email"
+          value={formValues.email}
+          onChange={(event) => setFormValues((values) => ({ ...values, email: event.target.value }))}
           autoComplete="email"
           required
           invalid={!!fe.email}
@@ -38,12 +54,18 @@ export function RegisterForm() {
         label="Password"
         name="password"
         error={fe.password}
-        hint="At least 8 characters with uppercase, lowercase, a number, and a special character."
+        hint="Minimum of 8 characters.
+At least one uppercase letter.
+At least one lowercase letter.
+At least one number.
+At least one special character."
       >
         <div className="relative">
           <Input
             type={showPassword ? "text" : "password"}
             name="password"
+            value={formValues.password}
+            onChange={(event) => setFormValues((values) => ({ ...values, password: event.target.value }))}
             autoComplete="new-password"
             required
             minLength={8}
@@ -71,14 +93,37 @@ export function RegisterForm() {
       </Field>
 
       <Field label="Confirm password" name="confirmPassword" error={fe.confirmPassword}>
-        <Input
-          type="password"
-          name="confirmPassword"
-          autoComplete="new-password"
-          required
-          minLength={8}
-          invalid={!!fe.confirmPassword}
-        />
+        <div className="relative">
+          <Input
+            type={showConfirmPassword ? "text" : "password"}
+            name="confirmPassword"
+            value={formValues.confirmPassword}
+            onChange={(event) => setFormValues((values) => ({ ...values, confirmPassword: event.target.value }))}
+            autoComplete="new-password"
+            required
+            minLength={8}
+            invalid={!!fe.confirmPassword}
+            className="pr-10"
+          />
+          <button
+            type="button"
+            onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+            className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-ink-muted hover:text-ink focus:outline-none"
+            aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
+            aria-pressed={showConfirmPassword}
+          >
+            {showConfirmPassword ? (
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.94 14.66l1.02-1.02a3 3 0 014.24 0l1.02 1.02M12 18a6 6 0 01-6-6c0-2.41.8-4.64 2.12-6.22" />
+              </svg>
+            ) : (
+              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
+                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                <circle cx="12" cy="12" r="3" />
+              </svg>
+            )}
+          </button>
+        </div>
       </Field>
 
       {state?.error && (
