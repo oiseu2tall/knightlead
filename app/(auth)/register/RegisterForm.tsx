@@ -3,6 +3,7 @@
 import { useActionState, useState } from "react";
 import { Field, Input } from "@/components/ui/Field";
 import { Button } from "@/components/ui/Button";
+import { Icon } from "@/components/ui/Icon";
 import { registerAction, type AuthFormState } from "../actions";
 
 export function RegisterForm() {
@@ -77,17 +78,11 @@ At least one special character."
             onClick={() => setShowPassword(!showPassword)}
             className="absolute right-2 top-1/2 -translate-y-1/2 p-1 text-ink-muted hover:text-ink focus:outline-none"
             aria-label={showPassword ? "Hide password" : "Show password"}
+            aria-pressed={showPassword}
           >
-            {showPassword ? (
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.94 14.66l1.02-1.02a3 3 0 014.24 0l1.02 1.02M12 18a6 6 0 01-6-6c0-2.41.8-4.64 2.12-6.22" />
-              </svg>
-            ) : (
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-            )}
+            {showPassword
+              ? <Icon.EyeOff aria-hidden="true" className="h-4 w-4" />
+              : <Icon.Eye aria-hidden="true" className="h-4 w-4" />}
           </button>
         </div>
       </Field>
@@ -112,16 +107,9 @@ At least one special character."
             aria-label={showConfirmPassword ? "Hide confirm password" : "Show confirm password"}
             aria-pressed={showConfirmPassword}
           >
-            {showConfirmPassword ? (
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path d="M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.94 14.66l1.02-1.02a3 3 0 014.24 0l1.02 1.02M12 18a6 6 0 01-6-6c0-2.41.8-4.64 2.12-6.22" />
-              </svg>
-            ) : (
-              <svg className="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
-                <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                <circle cx="12" cy="12" r="3" />
-              </svg>
-            )}
+            {showConfirmPassword
+              ? <Icon.EyeOff aria-hidden="true" className="h-4 w-4" />
+              : <Icon.Eye aria-hidden="true" className="h-4 w-4" />}
           </button>
         </div>
       </Field>

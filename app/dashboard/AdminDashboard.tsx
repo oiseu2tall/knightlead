@@ -4,7 +4,7 @@
 import Link from "next/link";
 import { db } from "@/lib/db";
 import { Card, PageHeader, StatCard, Badge } from "@/components/ui/Primitives";
-import { ROLE_META, isRole } from "@/lib/role";
+import { ROLE_META } from "@/lib/role";
 
 export default async function AdminDashboard({ name }: { name: string }) {
   const [cohortCount, courseCount, moduleCount, roleCounts, recentAudit] = await Promise.all([
@@ -19,6 +19,54 @@ export default async function AdminDashboard({ name }: { name: string }) {
       include: { user: { select: { name: true, email: true } } },
     }),
   ]);
+
+  const resourceParts = recentAudit.map((audit) => audit.resource?.split(":") ?? []);
+  const targetUserIds = [
+    ...new Set(
+      recentAudit.flatMap((audit, index) =>
+        audit.action === "CHANGE_USER_ROLE"
+          ? [resourceParts[index][1]]
+          : audit.action === "STAFF_ENROLL_STUDENT"
+            ? [resourceParts[index][2]]
+            : [],
+      ).filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const cohortIds = [
+    ...new Set(
+      recentAudit.flatMap((audit, index) =>
+        audit.action === "STAFF_ENROLL_STUDENT" ? [resourceParts[index][1]] : [],
+      ).filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const submissionIds = [
+    ...new Set(
+      recentAudit.flatMap((audit, index) =>
+        audit.action === "GRADE_SUBMISSION" ? [resourceParts[index][1]] : [],
+      ).filter((id): id is string => Boolean(id)),
+    ),
+  ];
+  const [targetUsers, cohorts, submissions] = await Promise.all([
+    db.user.findMany({
+      where: { id: { in: targetUserIds } },
+      select: { id: true, name: true, email: true },
+    }),
+    db.cohort.findMany({
+      where: { id: { in: cohortIds } },
+      select: { id: true, name: true, course: { select: { title: true } } },
+    }),
+    db.submission.findMany({
+      where: { id: { in: submissionIds } },
+      select: {
+        id: true,
+        assignment: { select: { title: true } },
+        user: { select: { name: true, email: true } },
+      },
+    }),
+  ]);
+  const usersById = new Map(targetUsers.map((user) => [user.id, user]));
+  const cohortsById = new Map(cohorts.map((cohort) => [cohort.id, cohort]));
+  const submissionsById = new Map(submissions.map((submission) => [submission.id, submission]));
 
   const countsByRole: Record<string, number> = Object.fromEntries(
     roleCounts.map((c) => [c.role, c._count._all]),
@@ -81,6 +129,24 @@ export default async function AdminDashboard({ name }: { name: string }) {
                   a.action === "CHANGE_USER_ROLE" ? "accent" :
                   a.action === "STAFF_ENROLL_STUDENT" ? "info" :
                   a.action === "GRADE_SUBMISSION" ? "success" : "neutral";
+                const [resourceType, resourceId, relatedId] = a.resource?.split(":") ?? [];
+                const targetUser = relatedId ? usersById.get(relatedId) : undefined;
+                const changedUser = resourceId ? usersById.get(resourceId) : undefined;
+                const cohort = resourceId ? cohortsById.get(resourceId) : undefined;
+                const submission = resourceId ? submissionsById.get(resourceId) : undefined;
+                let resourceLabel = resourceType ?? "Resource";
+                if (a.action === "CHANGE_USER_ROLE") {
+                  resourceLabel = changedUser?.name ?? changedUser?.email ?? "User no longer available";
+                } else if (a.action === "STAFF_ENROLL_STUDENT") {
+                  const studentName = targetUser?.name ?? targetUser?.email ?? "Student";
+                  resourceLabel = cohort
+                    ? `${studentName} · ${cohort.course.title} / ${cohort.name}`
+                    : `${studentName} · Cohort no longer available`;
+                } else if (a.action === "GRADE_SUBMISSION") {
+                  resourceLabel = submission
+                    ? `${submission.assignment.title} · ${submission.user.name ?? submission.user.email}`
+                    : "Submission no longer available";
+                }
                 return (
                   <li key={a.id} className="flex items-center gap-3 py-2.5 first:pt-0 last:pb-0">
                     <Badge tone={tone as "accent" | "info" | "success" | "neutral"}>
@@ -90,7 +156,7 @@ export default async function AdminDashboard({ name }: { name: string }) {
                       <p className="truncate text-sm text-ink">
                         {a.user?.name ?? a.user?.email ?? "system"}
                       </p>
-                      <p className="truncate text-[11px] text-ink-muted">{a.resource}</p>
+                      <p className="truncate text-[11px] text-ink-muted">{resourceLabel}</p>
                     </div>
                     <span className="shrink-0 text-[11px] text-ink-muted">
                       {a.createdAt.toLocaleString()}
@@ -124,4 +190,3 @@ export default async function AdminDashboard({ name }: { name: string }) {
     </>
   );
 }
-

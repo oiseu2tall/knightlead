@@ -30,6 +30,20 @@ export default async function ManagerDashboard({ name }: { name: string }) {
     }),
   ]);
 
+  const moduleCourseIds = [
+    ...new Set(
+      recentEdits
+        .filter((edit) => edit.action === "CREATE_MODULE")
+        .map((edit) => edit.resource?.startsWith("course:") ? edit.resource.slice("course:".length) : "")
+        .filter(Boolean),
+    ),
+  ];
+  const moduleCourses = await db.course.findMany({
+    where: { id: { in: moduleCourseIds } },
+    select: { id: true, title: true },
+  });
+  const moduleCourseTitles = new Map(moduleCourses.map((course) => [course.id, course.title]));
+
   return (
     <>
       <PageHeader
@@ -121,18 +135,54 @@ export default async function ManagerDashboard({ name }: { name: string }) {
             <p className="text-sm text-ink-muted">No catalog activity yet.</p>
           ) : (
             <ul className="divide-y divide-line">
-              {recentEdits.map((a) => (
-                <li key={a.id} className="flex items-start gap-2 py-2.5 first:pt-0 last:pb-0">
-                  <Badge tone="accent" className="shrink-0">{a.action.replace(/_/g, " ").toLowerCase()}</Badge>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs text-ink">
-                      {a.user?.name ?? a.user?.email ?? "system"}
-                    </p>
-                    <p className="truncate text-[11px] text-ink-muted">{a.resource}</p>
-                  </div>
-                  <span className="shrink-0 text-[11px] text-ink-muted">{a.createdAt.toLocaleDateString()}</span>
-                </li>
-              ))}
+              {recentEdits.map((a) => {
+                const metadata =
+                  a.metadata && typeof a.metadata === "object" && !Array.isArray(a.metadata)
+                    ? a.metadata
+                    : {};
+                const metadataText = (key: string) => {
+                  const value = metadata[key];
+                  return typeof value === "string" ? value : "";
+                };
+                const resourceParts = a.resource?.split(":") ?? [];
+                let resourceLabel = "Catalog item";
+
+                if (a.action.endsWith("_COHORT")) {
+                  const cohortName = metadataText("name");
+                  const courseTitle = metadataText("course");
+                  resourceLabel = cohortName
+                    ? `${cohortName}${courseTitle ? ` · ${courseTitle}` : ""}`
+                    : "Cohort";
+                } else if (a.action.endsWith("_COURSE")) {
+                  resourceLabel = metadataText("title") || "Course";
+                } else if (a.action.endsWith("_MODULE")) {
+                  const moduleTitle = metadataText("title");
+                  const courseTitle = a.action === "CREATE_MODULE"
+                    ? moduleCourseTitles.get(resourceParts[1])
+                    : undefined;
+                  resourceLabel = moduleTitle
+                    ? `${moduleTitle}${courseTitle ? ` · ${courseTitle}` : ""}`
+                    : "Module";
+                } else if (a.action === "STAFF_ENROLL_STUDENT") {
+                  const student = metadataText("student");
+                  const cohort = metadataText("cohort");
+                  const course = metadataText("course");
+                  resourceLabel = [student, course, cohort].filter(Boolean).join(" · ") || "Enrollment";
+                }
+
+                return (
+                  <li key={a.id} className="flex items-start gap-2 py-2.5 first:pt-0 last:pb-0">
+                    <Badge tone="accent" className="shrink-0">{a.action.replace(/_/g, " ").toLowerCase()}</Badge>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs text-ink">
+                        {a.user?.name ?? a.user?.email ?? "system"}
+                      </p>
+                      <p className="truncate text-[11px] text-ink-muted">{resourceLabel}</p>
+                    </div>
+                    <span className="shrink-0 text-[11px] text-ink-muted">{a.createdAt.toLocaleDateString()}</span>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </Card>
